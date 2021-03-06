@@ -43,6 +43,7 @@ jobs:
       - name: Install platform
         run: |
           arduino-cli core update-index
+          arduino-cli core install arduino:avr
           arduino-cli core install ${{ matrix.arduino-platform }}
 
       # Finally, we compile the sketch, using the FQBN that was set
