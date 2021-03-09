@@ -1,6 +1,6 @@
 #include "ExampleModule.h"
 
-MyModule module(2);
+ExampleModule module(2);
 
 void setup() {
   // put your setup code here, to run once:

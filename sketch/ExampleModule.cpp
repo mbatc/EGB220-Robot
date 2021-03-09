@@ -4,7 +4,7 @@ ExampleModule::ExampleModule(int theValue)
   : m_value(theValue)
 {}
 
-int ExampleModule::ExampleModule()
+int ExampleModule::GetValue()
 {
   return m_value;
 }
