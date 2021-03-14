@@ -1,4 +1,8 @@
 #include "SensorArray.h"
+#include "SerialCommands.h"
+#include "Commands.h"
+#include "StringStream.h"
+#include "SoftwareSerial.h"
 
 SensorArray sensorArray; // Sensor array object. Handles reading sensors and calculating line position
 
@@ -61,6 +65,27 @@ void setup() {
     pinMode(motors_L, OUTPUT);
   }    
 }
+
+// Expose variables to the command interface
+Commands::VarDef cmdVars[] = {
+  { "motorTurnFalloff",     motorTurnFalloff },
+  { "minMotorSpeed",        minMotorSpeed },
+  { "maxMotorSpeed",        maxMotorSpeed },
+  { "maxTurnSpeedDecrease", maxTurnSpeedDecrease },
+  { "noLineSpeedScalar",    noLineSpeedScalar },
+};
+
+// Expose functions to the command interface
+Commands::CmdDef cmdList[] = {};
+
+// Create the serial interface for the command set
+StringStream commandBuffer;
+bool commandReady = false;
+SoftwareSerial bt(2, 3);
+
+// Create the command set
+Commands cmdSet(cmdList, ArraySize(cmdList), cmdVars, ArraySize(cmdVars));
+SerialCommands serialCmd(&cmdSet, &commandBuffer, &bt);
 
 // This function takes a speed for each motor and sets their pins.
 void applyMotorSpeed(int leftMotor, int rightMotor) {
@@ -129,6 +154,19 @@ void drive(int motorSpeed, int motorLowestSpeed) {
 }
 
 void loop() {
+  if (commandReady) {
+    Serial.println();
+    Serial.println("Executing Command: " + commandBuffer.str());
+    serialCmd.execute();
+    commandBuffer.flush();
+    commandReady = false;
+  }
+  
+  if (bt.available()) {
+    commandReady |= bt.peek() == '\n'; // New line signals the end of a command 
+    commandBuffer.write((char)bt.read());
+  }
+
   // Am having a weird issue where the left motor direction reverts to backwards even though I've set it to forwards
   // Setting to forwards every loop seems to fix it for now though
   pinMode(17, OUTPUT);
