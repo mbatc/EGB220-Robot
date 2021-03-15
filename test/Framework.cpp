@@ -38,8 +38,6 @@ void Tests_Fail(char const * message, char const * file, int line)
   g_lastTest.line = to_string(line);
 }
 
-bool Tests_Call(std::function<bool()> func) { return func(); }
-
 int Tests_Run()
 {
   g_failed.clear();
