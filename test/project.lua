@@ -25,4 +25,6 @@ project "Test"
   files { "../sketch/List.h" }
   files { "../sketch/Str.h", "../sketch/Str.cpp" }
   files { "../sketch/Commands.h", "../sketch/Commands.cpp" }
+  files { "../sketch/SerialCommands.h", "../sketch/SerialCommands.cpp" }
+  files { "../sketch/Seeker.h", "../sketch/Seeker.cpp" }
 

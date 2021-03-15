@@ -24,7 +24,7 @@ static TestResult g_lastTest;
 
 void PrintResult(TestResult const & result);
 
-int Tests_Add(const char *name, std::function<void()> func)
+int Tests_Add(char const * name, std::function<void()> func)
 {
   GetTests().push_back({ name, func });
   return 1;
@@ -33,9 +33,9 @@ int Tests_Add(const char *name, std::function<void()> func)
 void Tests_Fail(char const * message, char const * file, int line)
 {
   g_lastTest.success = false;
-  g_lastTest.file = file;
+  g_lastTest.file    = file;
   g_lastTest.message = message;
-  g_lastTest.line = to_string(line);
+  g_lastTest.line    = to_string(line);
 }
 
 int Tests_Run()
@@ -47,7 +47,7 @@ int Tests_Run()
   size_t numPassed = 0;
   size_t testIndex = 0;
   size_t testCount = GetTests().size();
-  for (const pair<string, std::function<void()>> &test : GetTests())
+  for (pair<string, std::function<void()>> const & test : GetTests())
   {
     ++testIndex;
     g_lastTest = TestResult(); // Clear last result
@@ -58,7 +58,7 @@ int Tests_Run()
     { // Print reason
       PrintResult(g_lastTest);
       g_failed.emplace_back();
-      g_failed.back().first = test.first;
+      g_failed.back().first  = test.first;
       g_failed.back().second = g_lastTest;
     }
   }
@@ -69,7 +69,7 @@ int Tests_Run()
   if (g_failed.size() > 0)
   {
     printf("\n-- FAILED TESTS --\n");
-    for (const pair<string, TestResult> &test : g_failed)
+    for (pair<string, TestResult> const & test : g_failed)
     {
       printf("%s : [\n", test.first.c_str());
       PrintResult(test.second);
@@ -81,7 +81,7 @@ int Tests_Run()
 
 static void PrintResult(TestResult const & result)
 {
-  printf("  File:    %s\n", result.file.c_str());
-  printf("  Line:    %s\n", result.line.c_str());
+  printf("  File:    %s\n",     result.file.c_str());
+  printf("  Line:    %s\n",     result.line.c_str());
   printf("  Message: \"%s\"\n", result.message.c_str());
 }

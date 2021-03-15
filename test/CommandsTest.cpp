@@ -3,49 +3,32 @@
 
 Test(Commands_Variable)
 {
-  Commands cmds;
-  cmds.addVariable<int>("var");
+  int thing = 10;
 
-  Test_Assert(cmds.hasVariable("var"));
-  Test_Assert(cmds.set<int>("var", 20));
+  Commands::VarDef varList[] = {
+    { "thing", thing }
+  };
+
+  Commands cmds(nullptr, 0, varList, ArraySize(varList));
+
+  Test_Assert(cmds.hasVariable("thing"));
+  Test_Assert(cmds.set<int>("thing", 20));
 
   int var = 0;
-  Test_Assert(cmds.get<int>("var", &var));
+  Test_Assert(cmds.get<int>("thing", &var));
   Test_Assert(var == 20);
 }
 
-Test(Commands_AddVariableExternal)
-{
-  int var = 0;
-  Commands cmds;
-  cmds.addVariable("var", &var);
-
-  Test_Assert(cmds.set<int>("var", 10));
-  Test_Assert(var == 10);
-}
-
-Test(Commands_VariableExternal)
-{
-  int var = 0;
-  Commands cmds;
-  cmds.addVariable("var", &var);
-
-  Test_Assert(cmds.hasVariable("var"));
-  Test_Assert(cmds.set<int>("var", 10));
-  Test_Assert(var == 10);
-
-  int val;
-  Test_Assert(cmds.get<int>("var", &val));
-  Test_Assert(val == 10);
-}
-
-static uint32_t test = 0;
-
 Test(Commands_Command)
 {
-  Commands cmds;
-  Test_Assert(cmds.addCommand("inc-test", []() { test++; }));
-  Test_Assert(cmds.addCommand("dec-test", []() { test--; }));
+  static uint32_t test = 0;
+
+  Commands::CmdDef cmdList[] = {
+    { "inc-test", []() { test++; } },
+    { "dec-test", []() { test--; } }
+  };
+
+  Commands cmds(cmdList, ArraySize(cmdList), nullptr, 0);
 
   Test_Assert(cmds.hasCommand("inc-test"));
   Test_Assert(cmds.hasCommand("dec-test"));

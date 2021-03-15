@@ -1,12 +1,13 @@
-#ifndef SerialCommands_h__
-#define SerialCommands_h__
+#ifndef Commands_h__
+#define Commands_h__
 
-#include "Str.h"
+#include <stdint.h>
+
+#define ArraySize(arr) (sizeof(arr) / sizeof(*arr))
 
 // Simple way to get a unique integer for each type
-static uint32_t __NextTypeID() { static uint32_t nextID; return nextID++; }
-
-template<typename T> uint32_t TypeID() { static uint32_t id = __NextTypeID(); return id; }
+int __NextTypeID();
+template<typename T> int TypeID() { static int id = __NextTypeID(); return id; }
 
 /**
  * Commands class for calling functions and accessing variables using strings.
@@ -14,145 +15,104 @@ template<typename T> uint32_t TypeID() { static uint32_t id = __NextTypeID(); re
 class Commands
 {
 public:
-  class IVariable
-  {
-  public:
-    virtual ~IVariable() {};
-    virtual const Str& getName() = 0;
-    virtual void get(void* pData) = 0;
-    virtual void set(void const * pData) = 0;
-    virtual uint32_t getType() = 0;
+  typedef void(*CommandFunc)(); // Command function type definition
 
+  /**
+   * This struct contains details about a registered command.
+   */
+  struct CmdDef
+  {
+    CmdDef(char const *_name, CommandFunc _func);
+
+    char const * name = nullptr;
+    CommandFunc func;
+  };
+
+  /**
+   * This struct contains details about a registered variable
+   */
+  struct VarDef
+  {
     template<typename T>
-    bool is() { return getType() == TypeID<T>(); }
-  };
-
-  class ICommand
-  {
-  public:
-    virtual ~ICommand() {};
-    virtual const Str& getName() = 0;
-    virtual void operator()() = 0;
-  };
-
-  Commands() = default;
-  ~Commands();
-
-  bool call(Str const & name);
-  bool hasCommand(Str const & name);
-  bool hasVariable(Str const & name);
-
-  template<typename T>
-  bool addCommand(Str const & name, T cmd)
-  {
-    if (hasCommand(name))
-      return false;
-    m_commands.add(new Command<T>(name, cmd));
-    return true;
-  }
-
-  template<typename T>
-  void addVariable(Str const & name)
-  {
-    m_variables.add(new Variable<T>(name));
-  }
-
-  template<typename T>
-  void addVariable(Str const & name, T *pVariable)
-  {
-    m_variables.add(new Variable<T>(name, pVariable));
-  }
-
-  template<typename T>
-  bool set(Str const & name, T const & var)
-  {
-    IVariable *pAccessor = getVariable(name);
-    if (!pAccessor || !pAccessor->is<T>())
-      return false;
-    pAccessor->set(&var);
-    return true;
-  }
-
-  template<typename T>
-  bool get(Str const & name, T * pVar)
-  {
-    IVariable *pAccessor = getVariable(name);
-    if (!pAccessor || !pAccessor->is<T>())
-      return false;
-    pAccessor->get(pVar);
-    return true;
-  }
-
-protected:
-  template<typename T>
-  class Variable : public IVariable
-  {
-  public:
-    Variable(Str var, T *pVar = nullptr)
-      : m_name(move(var))
-      , m_pData(pVar)
-    {
-      if (!m_pData)
-      {
-        m_pData = new T;
-        m_ownsVar = true;
-      }
-    }
-
-    ~Variable()
-    {
-      if (m_ownsVar)
-        delete m_pData;
-      m_pData = nullptr;
-      m_ownsVar = false;
-    }
-
-    virtual void get(void * pData)       override { *(T*)pData = *m_pData; }
-    virtual void set(void const * pData) override { *m_pData = *(T*)pData; }
-    virtual uint32_t getType()           override { return TypeID<T>(); }
-    virtual const Str& getName()         override { return m_name; }
-
-  protected:
-    bool m_ownsVar = false;
-    T *m_pData = nullptr;
-    Str m_name;
-  };
-
-  template<typename T>
-  class Command : public ICommand
-  {
-  public:
-    Command(Str name, T func)
-      : m_name(move(name))
-      , m_func(func)
+    VarDef(char const *_name, T &var)
+      : name(_name)
+      , pVar(&var)
+      , typeID(TypeID<T>())
     {}
 
-    virtual const Str& getName() override { return m_name; }
-    virtual void operator()()    override { m_func(); }
-
-  protected:
-    T m_func = nullptr;
-    Str m_name;
+    char const * name = nullptr;
+    void const * pVar       = nullptr;
+    int const typeID   = -1;
   };
 
-  IVariable* getVariable(Str const & name)
-  {
-    for (IVariable *pVar : m_variables)
-      if (pVar->getName().compare(name))
-        return pVar;
-    return nullptr;
+  Commands(CmdDef *pCommands, uint32_t numCommands, VarDef *pVariables, uint32_t numVariables);
+  Commands(Commands && o) = delete;      // No move
+  Commands(Commands const & o) = delete; // No copy
+
+  /**
+   * Call a registered commands.
+   */
+  bool call(char const * name) const;
+
+  /**
+   * Check if a command is registered.
+   */
+  bool hasCommand(char const * name) const;
+
+  /**
+   * Check if a variable is registered.
+   */
+  bool hasVariable(char const * name) const;
+
+  /**
+   * Set a variable. The type must be the same as the registered
+   * variable type.
+   *
+   * Returns true if the internal variable was set.
+   * Returns false otherwise.
+   */
+  template<typename T>
+  bool set(char const * name, T const & var) const {
+    VarDef *pAccessor = getVariable(name);
+    if (!pAccessor || pAccessor->typeID != TypeID<T>())
+      return false;
+    *(T*)pAccessor->pVar = var;
+    return true;
   }
 
-  ICommand* getCommand(Str const & name)
-  {
-    for (ICommand *pCmd : m_commands)
-      if (pCmd->getName().compare(name))
-        return pCmd;
-    return nullptr;
+  /**
+   * Get a variable. The type must be the same as the registered
+   * variable type.
+   *
+   * Returns true if the variable was copied into pVar.
+   * Returns false otherwise.
+   */
+  template<typename T>
+  bool get(char const * name, T * pVar) const {
+    VarDef *pAccessor = getVariable(name);
+    if (!pAccessor || pAccessor->typeID != TypeID<T>())
+      return false;
+    *pVar = *(T*)pAccessor->pVar;
+    return true;
   }
 
-  List<ICommand*>  m_commands;
-  List<IVariable*> m_variables;
+  /**
+   * Get the type of a registered variable.
+   *
+   * Returns the type of the variable with the name 'name'.
+   * Returns -1 if the variable does not exist.
+   */
+  int getVariableType(char const * name) const;
+
+protected:
+  VarDef* getVariable(char const * name) const;
+  CmdDef* getCommand(char const * name) const;
+
+  CmdDef  *m_pCommands   = nullptr;
+  uint32_t m_numCommands = 0;
+
+  VarDef  *m_pVars   = nullptr;
+  uint32_t m_numVars = 0;
 };
 
-#endif // SerialCommands_h__
+#endif // Commands_h__

@@ -2,6 +2,7 @@
 #include <string.h>
 
 static char const * const _empty = "\0";
+char const *whitespace = " \n\t\r";
 
 static bool _Compare(char const *rhs, char const *lhs, uint32_t count = ~uint32_t(0)) { return strncmp(rhs, lhs, count) == 0; }
 
@@ -45,12 +46,13 @@ Str & Str::operator=(char const * str)
   return *this;
 }
 
-Str::Str(char const * str)
+Str::Str(char const * str, int length)
 {
   if (str)
   {
-    m_buffer.reserve((uint32_t)strlen(str) + 1);
-    m_buffer.addRange(str, str + m_buffer.capacity());
+    m_buffer.reserve((length < 0 ? (uint32_t)strlen(str) : length) + 1);
+    m_buffer.addRange(str, str + m_buffer.capacity() - 1);
+    m_buffer.add('\0');
   }
 }
 

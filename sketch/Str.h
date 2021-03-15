@@ -3,6 +3,8 @@
 
 #include "List.h"
 
+extern char const *whitespace;
+
 char const * strnstr(char const *str, char const *needle, uint32_t count);
 char const * strnpbrk(char const *str, char const *control, uint32_t count);
 
@@ -16,7 +18,7 @@ public:
   Str& operator=(Str const & o) = default;
 
   Str& operator=(char const * o);
-  Str(char const *str);
+  Str(char const *str, int length = -1);
   Str(List<char> str);
 
   Str substr(uint32_t start, uint32_t length) const;
