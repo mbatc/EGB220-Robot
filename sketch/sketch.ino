@@ -134,8 +134,7 @@ void setup() {
   }    
 }
 
-void loop() {   Function to iterate over pins and read values, helpful to figure out which pins map to the input sensors on the board
-
+void loop() {
   //am havign a weird issue where the left motor direction reverts to backwards even though I've set it to forwards
   //setting to forwards every loop seems to fix it for now though
   pinMode(17, OUTPUT);
