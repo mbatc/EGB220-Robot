@@ -18,8 +18,8 @@ double turnAmount = 0;   // Current amount the robot is turning. Contains a valu
 // and cause a later, more aggressive turn.
 double motorTurnFalloff = 0.75;
 
-// The maximum amount the speed will be decrease when turning.
-// Increase this number to increase speed around corners.
+// The maximum amount the speed will be decreased when turning.
+// Decrease this number to increase speed around corners.
 // A value of 0 will not adjust the max motor speed when cornering.
 double maxTurnSpeedDecrease = 0.5;
 
