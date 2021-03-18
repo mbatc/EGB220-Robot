@@ -1,126 +1,54 @@
-#define PRINT_DEBUG_INFO
-
-#include "math.h"
 #include "SensorArray.h"
 
-SensorArray sensorArray;
+SensorArray sensorArray; // Sensor array object. Handles reading sensors and calculating line position
 
-const int motors_R = 3; // Right motor
-const int motors_L = 11; // Left motor
+const int motors_R     = 3;        // Right motor pin
+const int motors_L     = 11;       // Left motor pin
+const int motorsDir[2] = {17, 60}; // Motor direction pins **** not pin 60**** just havent been bothered to find it yet
 
-const int motorsDir[2] = {17, 60}; // motor direction pins **** not pin 60**** just havent been bothered to find it yet
+bool driving = false;    // Is the motor currently driving
+int maxMotorSpeed = 200; // Max speed of the motors
+int minMotorSpeed = 2;   // Max speed of the motors
+double turnAmount = 0;   // Current amount the robot is turning. Contains a value between -1 and 1 (-1=right, 1=left)
 
-double sensorPower  = 0.5;
+// Controls the linearity of the motors change in speed. e.g. 2 means the motor
+// speed is decreased according to the curve x^2, and 3 would follow x^3.
+//
+// Larger values increase the 'deadzone' in the middle of the sensor values
+// and cause a later, more aggressive turn.
+double motorTurnFalloff = 0.75;
 
-int motorSpeed = 200; // Current speed of the motors
+// The maximum amount the speed will be decrease when turning.
+// Increase this number to increase speed around corners.
+// A value of 0 will not adjust the max motor speed when cornering.
+double maxTurnSpeedDecrease = 0.5;
 
-double calcPower(double x, double power, double shift, double scale) {
-  return pow((x - shift)/scale, power) * scale;
-}
-
-double mapNonLinear(double input, double inMin, double inMax, double outMin, double outMax, double power) {
-  double inRange  = inMax - inMin; // Range of the input value
-  double outRange = outMax - outMin; // Range of the output value
-
-   // Normalize the input value between 0 and 1
-  double normalized = (input - inMin) / inRange;
-
-  // Calculate an output value between 0 and 1.
-  double mapped = 0;
-  double base   = (0.5 - normalized) * 2;
-  if (normalized < 0.5) {
-    mapped = -pow(base, power);
-  }
-  else if (normalized > 0.5) {
-    mapped = pow(-base, power);
-  }
-  
-  mapped = mapped * 0.5 + 0.5;
-  
-  // Remap the output value to the output range requested
-  return mapped * outRange + outMin;
-}
-
-int lineMissingTime = 0;
-
-//funtion to drive the robot, takes a speed value between 0 and 255 (0% and 100%) as the top speed
-//both motors run at MotorSpeed until it sees a corner, then one wheel is ramped down in speed based on how sharp the corner is. this can be edited to make one wheel slow and the other speed up if need be
-//motorLowestSpeed set the lowest speed the motors are allowed to go
-void drive(int MotorSpeed, int motorLowestSpeed) {
-  // the upper and lower bound values determines what the robot sees as a straight line, these basically adjust the sensitivity of the robot
-  double upperBound = 2.75;
-  double lowerBound = 4.75;
-
-  //speed of the left and right motor ;P
-  int motorSpeed_L = 0;
-  int motorSpeed_R = 0;
-
-  //read the line sensors and update the sensorArray value
-  //this function can propably be put into the drive function
-  double linePos = sensorArray.getLinePos();
-  double turnAmount = 0;
-
-  ++lineMissingTime;
-  if (lineMissingTime < 175 || sensorArray.lineDetected() || sensorArray.horizontalLineDetected()) {
-    //if the sensorArray is between the bounds the robot should go straight.
-    //
-    //The bounds are controlled by 'sensorPower'. Increasing sensorPower increases the size of the 'deadzone' in the
-    //middle of the sensor array.
-    double turnAmount = mapNonLinear(linePos, 0.5, 6.5, -1, 1, sensorPower);
-    turnAmount        = min(1, max(-1, turnAmount)); // Clamp between -1 and 1
-
-    // If turnAmount is < 0, we want to turn right. Decrease the right motor speed and keep the left motor unchanged.
-    // If turnAmount is > 0, we want to turn left. Decrease the left motor speed, and keep the right motor unchanged.
-    int speedRange = MotorSpeed - motorLowestSpeed;
-    motorSpeed_R = (1 - abs(turnAmount) / 2) * (MotorSpeed + min(turnAmount, 0) * speedRange);
-    motorSpeed_L = (1 - abs(turnAmount) / 2) * (MotorSpeed - max(turnAmount, 0) * speedRange);
-
-    if (sensorArray.lineDetected()) {
-      lineMissingTime = 0;
-    }
-    else {
-      motorSpeed_R /= 2;
-      motorSpeed_L /= 2;
-    }
-  }
-  else {
-    motorSpeed_R = 0;
-    motorSpeed_L = 0;
-  }
-  //updating the motors with their new speeds
-  analogWrite(motors_R, motorSpeed_R);
-  analogWrite(motors_L, motorSpeed_L);
-  
-  Serial.print(" ");
-  Serial.print(lineMissingTime);
-  Serial.print(" ");
-    
-  #ifdef PRINT_DEBUG_INFO
-  // more debugging serial prints
-  Serial.print("     Right motor speed: ");
-  Serial.print(motorSpeed_R);
-  Serial.print("     Left motor speed: ");
-  Serial.print(motorSpeed_L);
-  
-  Serial.print("     Turn amount: ");
-  Serial.print(turnAmount);
-  
-  #endif
-}
-
-
+// How much to divide the speed of both motors by if no line is detected
+// Increase to make the robot move slower when it fails to detect a line. 
+// A value greater than 1 will decrease the robots speed.
+// A value of 1 will not change the robots speed.
+// A value less than 1 will increase the robots speed.
+double noLineSpeedScalar = 1.2;
 
 void setup() {
-  //enabling serial
+  // Enabling serial
   Serial.begin(9600);
-  Serial.print("Ready...");
+  DEBUG_PRINT("Ready...");
 
-  
-  SensorConfig sensorConf =
-  {
-    14,
-    { 15, 2, 1, 0, 8, 7, 29, 6 },
-    150
+  // Configuration for the IR sensor array
+  SensorConfig sensorConf = {
+    // IR Emitter Pin
+    .emitPin = 14,
+
+     // IR Sensor Pins
+    .recvPins = { 15, 2, 1, 0, 8, 7, 29, 6 },
+
+     // Minimum std deviation between sensor readings for a line to be detected
+    .detectThreshold = 150,
+
+     // Controls how heavily weighted larger sensor values are. A larger number
+     // will increase there weighting. This should not be greater than 1.
+    .sensorFalloff = 0.25
   };
 
   // Setup the sensor array
@@ -134,17 +62,96 @@ void setup() {
   }    
 }
 
+// This function takes a speed for each motor and sets their pins.
+void applyMotorSpeed(int leftMotor, int rightMotor) {
+  analogWrite(motors_L, leftMotor);
+  analogWrite(motors_R, rightMotor);
+}
+
+// Funtion to drive the robot, takes a speed value between 0 and 255 (0% and 100%) as the top speed
+// both motors run at MotorSpeed until it sees a corner, then one wheel is ramped down in speed based on how sharp the corner is. this can be edited to make one wheel slow and the other speed up if need be
+// motorLowestSpeed set the lowest speed the motors are allowed to go
+void drive(int motorSpeed, int motorLowestSpeed) {
+  // Get the line position calculated by the sensor array
+  double linePos = sensorArray.getLinePos();
+  
+  int motorSpeed_L = 0; // Spped of the left motor
+  int motorSpeed_R = 0; // Speed of the right motor
+
+  // If the sensor array has detected a line, update turnAmount
+  if (sensorArray.lineDetected()) {
+    turnAmount = mapf(linePos, 1, 6, -1, 1);
+    turnAmount = min(1, max(-1, turnAmount)); // Clamp between -1 and 1.
+  }
+
+  // Total difference in speed allowed
+  int speedRange = motorSpeed - motorLowestSpeed;
+
+  // If turnAmount is > 0, we want to turn left. Decrease the left motor speed, and keep the right motor unchanged.
+  double leftAmount  = max(turnAmount, 0);      // Applied to the left motor
+  // If turnAmount is < 0, we want to turn right. Decrease the right motor speed and keep the left motor unchanged.
+  double rightAmount = abs(min(turnAmount, 0)); // Applied to the right motor
+  double turnMagnitude = abs(turnAmount);
+  
+  // Map turn amounts to a non-linear curve.
+  rightAmount    = pow(rightAmount,   motorTurnFalloff);
+  leftAmount     = pow(leftAmount,    motorTurnFalloff);
+  turnMagnitude  = pow(turnMagnitude, motorTurnFalloff);
+
+  // Turn amount in either direction (used to calculate an adjustment for both motors).
+  double motorSpeedFactor = (1 - mapf(turnMagnitude, 0, 1, 0, maxTurnSpeedDecrease)); // Applied to both motors.
+
+  // Calculate the speed for each motor from the values above.
+  motorSpeed_R = motorSpeedFactor * (motorSpeed - rightAmount * speedRange);
+  motorSpeed_L = motorSpeedFactor * (motorSpeed - leftAmount  * speedRange);
+
+  // Reduce the motor speed if no line is detected
+  if (!sensorArray.lineDetected() && !sensorArray.horizontalLineDetected()) {
+    motorSpeed_R /= noLineSpeedScalar;
+    motorSpeed_L /= noLineSpeedScalar;
+  }
+
+  // Clamp calculated speeds between the min/max speeds given to the function
+  motorSpeed_R = min(motorSpeed, max(motorLowestSpeed, motorSpeed_R));
+  motorSpeed_L = min(motorSpeed, max(motorLowestSpeed, motorSpeed_L));
+  
+  // Updating the motors with their new speeds
+  applyMotorSpeed(motorSpeed_L, motorSpeed_R);
+
+  // More debugging serial prints
+  DEBUG_PRINT("     Right motor speed: ");
+  DEBUG_PRINT(motorSpeed_R);
+  DEBUG_PRINT("     Left motor speed: ");
+  DEBUG_PRINT(motorSpeed_L);
+  
+  DEBUG_PRINT("     Turn amount: ");
+  DEBUG_PRINT(turnMagnitude * SIGN(turnAmount));
+}
+
 void loop() {
-  //am havign a weird issue where the left motor direction reverts to backwards even though I've set it to forwards
-  //setting to forwards every loop seems to fix it for now though
+  // Am having a weird issue where the left motor direction reverts to backwards even though I've set it to forwards
+  // Setting to forwards every loop seems to fix it for now though
   pinMode(17, OUTPUT);
   digitalWrite(17, LOW);
 
-  //drive the robot
-  drive(motorSpeed, 2);
-  
-  //print a new line on serial so it looks nice
-  #ifdef PRINT_DEBUG_INFO
-  Serial.println();
-  #endif
+  // Update sensor array and calculate line position
+  sensorArray.update();
+
+  if (driving) {
+    // Drive the robot
+    drive(maxMotorSpeed, minMotorSpeed);
+
+    // Keep driving while the line has not been missing for more than 0.5 seconds
+    driving &= sensorArray.lineMissingTime() < 500;
+  }
+  else {
+    // Make sure both motors are stopped
+    applyMotorSpeed(0, 0);
+    
+    // Don't start driving until the line has been detected for more than 1 second.
+    driving |= sensorArray.lineDetectedTime() > 1000;
+  }
+
+  // Print a new line on serial so it looks nice
+  DEBUG_PRINTLN("");
 }
