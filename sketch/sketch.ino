@@ -14,12 +14,15 @@ bool driving = false;    // Is the motor currently driving
 int maxMotorSpeed = 170; // Max speed of the motors
 int minMotorSpeed = 0;   // Max speed of the motors
 double turnAmount = 0;   // Current amount the robot is turning. Contains a value between -1 and 1 (-1=right, 1=left)
+double speedFactor = 0;
+int calibrate = 0;
 
 double kp = 1;
 double ki = 0;
 double kd = 5;
-int PIDscaleFactor = 120; // this value adjusts how sensitive the PID correction is on the turning
+double PIDscaleFactor = 0.75; // this value adjusts how sensitive the PID correction is on the turning
 
+int mode = 0;
 
 // Controls the linearity of the motors change in speed. e.g. 2 means the motor
 // speed is decreased according to the curve x^2, and 3 would follow x^3.
@@ -47,7 +50,9 @@ Commands::VarDef cmdVars[] = {
   { "kd",     kd },
   { "PIDscaleFactor", PIDscaleFactor },
   { "maxMotorSpeed", maxMotorSpeed },
-  { "mixMotorSpeed", minMotorSpeed }
+  { "minMotorSpeed", minMotorSpeed },
+  { "speedFactor", speedFactor },
+  { "calibrate", calibrate }
 };
 
 // Expose functions to the command interface
@@ -74,7 +79,8 @@ void setup() {
     .emitPin = 14,
 
     // IR Sensor Pins
-    .recvPins = { 15, 2, 1, 0, 8, 7, 29, 6 },
+    // .recvPins = { 15, 2, 1, 0, 8, 7, 29, 6 }, /*For 8 sensors*/
+    .recvPins = { 2, 1, 0, 8, 7, 29 }, /*For 6 sensors*/
 
     // Minimum std deviation between sensor readings for a line to be detected
     .detectThreshold = 150,
@@ -101,60 +107,64 @@ void applyMotorSpeed(int leftMotor, int rightMotor) {
   analogWrite(motors_R, rightMotor);
 }
 
+unsigned long currentTime, previousTime;
+double errorPID = 0;
+double lastError = 0;
+double correction = 0;
+double cumError = 0;
+double rateError = 0;
+double idealLinePos = 0.5; // the ideal position of the robot on the line
+bool isFirst = true;
+
+int motorSpeed_L = 0; // Speed of the left motor
+int motorSpeed_R = 0; // Speed of the right motor
+
 // Funtion to drive the robot, takes a speed value between 0 and 255 (0% and 100%) as the top speed
 // both motors run at MotorSpeed until it sees a corner, then one wheel is ramped down in speed based on how sharp the corner is. this can be edited to make one wheel slow and the other speed up if need be
 // motorLowestSpeed set the lowest speed the motors are allowed to go
-unsigned long currentTime, previousTime;
-double errorPID, lastError, correction, cumError, rateError;
-double idealLinePos = 3.5; // the ideal position of the robot on the line
-
-
 void drive(int motorSpeed, int motorLowestSpeed) {
    // Get the line position calculated by the sensor array
   double linePos = sensorArray.getLinePos();
-  
-  
-  
-  
 
   currentTime = millis();
   double elapsedTime = (double)currentTime - previousTime;
 
-  
-  
-  errorPID = idealLinePos - linePos;
-  cumError += errorPID * elapsedTime;
-  rateError = (errorPID - lastError)/elapsedTime;
+  // Update the PID controller if a line is detected
+  if (sensorArray.lineDetected()) {
+    errorPID  = idealLinePos - linePos;
+    if (!isFirst) {
+      cumError += errorPID * elapsedTime; 
+      rateError = (errorPID - lastError)/elapsedTime;
+    }
+    isFirst = false;
+    correction = kp * errorPID + ki * cumError + kd * rateError;
+    lastError = errorPID;
 
-  correction = kp*errorPID + ki*cumError + kd*rateError;
+    correction = PIDscaleFactor * correction * (motorSpeed - motorLowestSpeed);
+    
+    if (correction > 0){
+      motorSpeed_R = motorSpeed - correction;
+      motorSpeed_L = motorSpeed;
+    }
+    else if (correction < 0){
+      motorSpeed_L = motorSpeed + correction;
+      motorSpeed_R = motorSpeed;
+    }
+
+    int cornerAdjustment = abs(motorSpeed_L - motorSpeed_R) * speedFactor;
+    motorSpeed_L -= cornerAdjustment;
+    motorSpeed_R -= cornerAdjustment;
+  }
   
-  lastError = errorPID;
   previousTime = currentTime;
-  
-  
-  //DEBUG_PRINT("     Perror: ");
-  //DEBUG_PRINT(errorPID);
-  //DEBUG_PRINT("     Ierror: ");
-  //DEBUG_PRINT(cumError);
-  //DEBUG_PRINT("     Derror: ");
-  //DEBUG_PRINT(rateError);
-  DEBUG_PRINT("     Correction: ");
+  DEBUG_PRINT("     Pe: ");
+  DEBUG_PRINT(errorPID);
+  DEBUG_PRINT("     Ie: ");
+  DEBUG_PRINT(cumError);
+  DEBUG_PRINT("     De: ");
+  DEBUG_PRINT(rateError);
+  DEBUG_PRINT("     Cor: ");
   DEBUG_PRINT(correction);
-  
- 
-
-  int motorSpeed_L = 0; // Speed of the left motor
-  int motorSpeed_R = 0; // Speed of the right motor
-
-  if (correction > 0){
-    motorSpeed_R = motorSpeed-correction*PIDscaleFactor;
-    motorSpeed_L = motorSpeed;
-    DEBUG_PRINT("   ");
-  }
-  else if (correction < 0){
-    motorSpeed_L = motorSpeed+correction*PIDscaleFactor;
-    motorSpeed_R = motorSpeed;
-  }
       
   // Reduce the motor speed if no line is detected
   if (!sensorArray.lineDetected() && !sensorArray.horizontalLineDetected()) {
@@ -170,19 +180,19 @@ void drive(int motorSpeed, int motorLowestSpeed) {
   applyMotorSpeed(motorSpeed_L, motorSpeed_R);
 
   // More debugging serial prints
-  DEBUG_PRINT("     Right motor speed: ");
+  DEBUG_PRINT("     RMS: ");
   DEBUG_PRINT(motorSpeed_R);
-  DEBUG_PRINT("     Left motor speed: ");
+  DEBUG_PRINT("     LMS: ");
   DEBUG_PRINT(motorSpeed_L);
-
-  //DEBUG_PRINT("     Turn amount: ");
-  //DEBUG_PRINT(turnMagnitude * SIGN(turnAmount));
 }
 
 void loop() {  
   if (commandReady) {
-    Serial.println();
-    Serial.println("Executing Command: " + commandBuffer.str());
+    DEBUG_PRINT("\n");
+    DEBUG_PRINT("Executing Command: ");
+    DEBUG_PRINT(commandBuffer.str());
+    DEBUG_PRINT("\n");
+
     serialCmd.execute();
     commandBuffer.flush();
     commandReady = false;
@@ -200,8 +210,9 @@ void loop() {
 
   // Update sensor array and calculate line position
   sensorArray.update();
-
-  if (driving) {
+  sensorArray.setCalibrating(calibrate != 0);
+  
+  if (driving && !calibrate) {
     // Drive the robot
     drive(maxMotorSpeed, minMotorSpeed);
 
@@ -212,6 +223,10 @@ void loop() {
     // Make sure both motors are stopped
     applyMotorSpeed(0, 0);
 
+    // Reset accum error when we loose the line
+    cumError = 0;
+    isFirst = true;
+    
     // Don't start driving until the line has been detected for more than 1 second.
     driving |= sensorArray.lineDetectedTime() > 1000;
   }

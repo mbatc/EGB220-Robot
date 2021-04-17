@@ -2,12 +2,7 @@
 #define SerialCommands_h__
 
 #include "Commands.h"
-
-#if defined(ARDUINO) && ARDUINO >= 100
 #include <Arduino.h>
-#else
-#include "../test/FakeArduino.h"
-#endif
 
 // class Commands; // Pre-declare the Commands class
 

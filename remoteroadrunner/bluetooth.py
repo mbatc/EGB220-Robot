@@ -21,6 +21,7 @@ class Connection:
     self.handler         = None
     self.send_lock       = Lock()
     self.accum_buffer    = bytearray()
+    self.connected = False
 
     # Try to connect to the bluetooth device
     self.connect_task    = asyncio.create_task(self.__connect())
@@ -60,5 +61,4 @@ class Connection:
     # self._connect_failed = not await self.client.is_connected()
     await self.client.start_notify(self.read_char, self.__notify)
     self._connect_failed = not self.client.is_connected
-
-
+    self.connected = True

@@ -3,7 +3,7 @@
 
 #include "Util.h"
 
-#define IR_SENSOR_COUNT 8
+#define IR_SENSOR_COUNT  6
 
 // Struct that contains configuration options for the sensor array
 struct SensorConfig
@@ -48,6 +48,15 @@ public:
   // This function reads the sensor and calculates the Derived IR sensor values below.
   // Should be called once per loop().
   void update();
+
+  // Set the calibration mode of the sensor array.
+  void setCalibrating(bool mode);
+
+  // Returns true if the sensor array is being calibrated.
+  bool isCalibrated();
+
+  // Reset the calibration of the sensor array
+  void resetCalibration();
   
 protected:
   void updateSensorValues();
@@ -55,6 +64,9 @@ protected:
 
   // Raw IR sensor values
   int m_irValue[IR_SENSOR_COUNT];
+  int m_irCalibMin[IR_SENSOR_COUNT];
+  int m_irCalibMax[IR_SENSOR_COUNT];
+  
   // Derived IR sensor values
   int m_irAvg    = 0; // Average sensor value
   int m_irStdDev = 0; // Standard Deviation in sensor values
@@ -69,6 +81,9 @@ protected:
 
   // Sensor array configuration
   SensorConfig m_config;
+
+  bool m_calibrating = false;
+  bool m_calibrated = true;
 };
 
 #endif

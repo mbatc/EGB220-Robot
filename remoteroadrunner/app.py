@@ -82,6 +82,7 @@ class App:
     self.gui      = gui.GUI(self)
     self.scanner  = BleakScanner()
     self.scanner.register_detection_callback(self.__on_device_found)
+    self.connecting = False
 
     self.is_scanning = False
     self.console_in  = []
@@ -92,7 +93,7 @@ class App:
 
     self.commands = AppCommands(self)
     self.devices  = { 
-      "64:69:4E:7B:5E:0B": Device("roadrunner", "64:69:4E:7B:5E:0B", "chief egb220 engineers")
+      # "64:69:4E:7B:5E:0B": Device("roadrunner", "64:69:4E:7B:5E:0B", "chief egb220 engineers")
     }
 
     self.connected_device = ""
@@ -141,6 +142,7 @@ class App:
       self.log("Failed to connect to {0}".format(address))
 
   def connect(self, address):
+    self.connecting = True
     asyncio.create_task(self._connect_async(address))
 
   def call_command(self, name):
@@ -164,6 +166,11 @@ class App:
 
   def update(self):
     self.gui.update()
+
+    if self.connecting and self.context.is_connected():
+      self.refresh_commands()
+      self.refresh_variables()
+      self.connecting = False
 
     for cmd in self.console_in:
       self.process_console(cmd)

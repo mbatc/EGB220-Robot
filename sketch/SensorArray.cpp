@@ -13,6 +13,17 @@ bool SensorArray::setup(SensorConfig conf)
   for (int i = 0; i < 8; i++) {
     pinMode(m_config.recvPins[i], INPUT);
   }
+
+  resetCalibration();
+}
+
+void SensorArray::resetCalibration() {
+  for (int i = 0; i < IR_SENSOR_COUNT; ++i) {
+    m_irCalibMin[i] = 1024;
+    m_irCalibMax[i] = 0;
+  }
+  m_calibrated  = false;
+  m_calibrating = false;
 }
 
 double SensorArray::getLinePos() {  
@@ -30,14 +41,14 @@ bool SensorArray::horizontalLineDetected() {
 void SensorArray::update() {
   updateSensorValues();
   updateLinePosition();
-}
+ }
 
 void SensorArray::updateLinePosition() {
   // more debugging serial prints
-  DEBUG_PRINT("     ir receiver values:");
+  // DEBUG_PRINT("     ir receiver values:");
   for (int j = 0; j < IR_SENSOR_COUNT; j++) {
-    DEBUG_PRINT("  ");
-    DEBUG_PRINT(m_irValue[j]);
+    // DEBUG_PRINT("  ");
+    // DEBUG_PRINT(m_irValue[j]);
   }
   
   DEBUG_PRINT("    Sensor Avg: ");
@@ -56,13 +67,6 @@ void SensorArray::updateLinePosition() {
     DEBUG_PRINT("    No Line Detected");
     return;
   }
-    
-  // double num = 0;
-  // double den = 0;
-  // for (int i = 0; i < IR_SENSOR_COUNT; ++i) {
-  //  numerator   += (i + 1) * irValue[i];
-  //  denomenator += irValue[i];
-  // }
 
   // Take a weighted average of the IR sensor indices.
   m_linePosition = 0;
@@ -70,14 +74,14 @@ void SensorArray::updateLinePosition() {
   for (int i = 0; i < IR_SENSOR_COUNT; ++i) {
     // Calculate the weight for the sensor reading at 'i'
     // The weight is based on how different the sensor value is from the minimum value recorded
-    double dist = abs(mapf(m_irValue[i], m_irMin, m_irMax, 0, 1));
+    double dist = abs(mapf(m_irValue[i], 0, 1024, 0, 1));
     // Adjust the weight using a power function.
     // This will more heavily weight values closer to m_irMin.
     double weight = (1.0 - pow(dist, m_config.sensorFalloff));
     m_linePosition += i * weight; // Sum the weighted indices
     totalWeight += weight;        // Sum the weights so we can divide by the total later
   }
-  m_linePosition /= totalWeight; // Calculate the weighted average.
+  m_linePosition /= (totalWeight * IR_SENSOR_COUNT); // Calculate the weighted average.
 
   // de-bugging serial print, can be comented out
   DEBUG_PRINT("     Line Pos: ");
@@ -92,6 +96,15 @@ void SensorArray::updateSensorValues() {
   // Read in all the sensor values
   for (int j = 0; j < IR_SENSOR_COUNT; j++) {
     m_irValue[j] = analogRead(m_config.recvPins[j]);
+    if (m_calibrating) {
+      m_irCalibMin[j] = min(m_irCalibMin[j], m_irValue[j]);
+      m_irCalibMax[j] = max(m_irCalibMax[j], m_irValue[j]);
+    }
+    
+    if (m_calibrated) {
+      m_irValue[j] = map(m_irValue[j], m_irCalibMin[j], m_irCalibMax[j], 0, 1024);
+    }
+    
     m_irMin = min(m_irMin, m_irValue[j]); // Get the min/max while we are at it
     m_irMax = max(m_irMax, m_irValue[j]);
   }
@@ -139,4 +152,15 @@ int SensorArray::lineMissingTime() {
 // Get the number of milliseconds the line has been detected continuosly.
 int SensorArray::lineDetectedTime() {
   return m_lineDetectedMilli;
+}
+
+
+void SensorArray::setCalibrating(bool mode) {
+  m_calibrated |= m_calibrating && !mode;
+  m_calibrating = mode;
+}
+
+ 
+bool SensorArray::isCalibrated() {
+  return m_calibrated;
 }

@@ -6,8 +6,8 @@ import imgui
 
 class CommandContext:
   def __init__(self, app):
-    self.commands = [ 'command1', 'command2' ]
-    self.variables = { 'test': int(1), 'test2': float(3.2), 'test3': bool(False) }
+    self.commands = [  ]
+    self.variables = {  }
     self.bt = None
     self.get_queue = queue.Queue()
     self.app = app
@@ -31,7 +31,7 @@ class CommandContext:
     return self.bt.get_connect_task()
 
   def is_connected(self):
-    return self.bt != None
+    return self.bt != None and self.bt.connected
 
   def call_command(self, name):
     '''
