@@ -56,13 +56,6 @@ void SensorArray::updateLinePosition() {
     DEBUG_PRINT("    No Line Detected");
     return;
   }
-    
-  // double num = 0;
-  // double den = 0;
-  // for (int i = 0; i < IR_SENSOR_COUNT; ++i) {
-  //  numerator   += (i + 1) * irValue[i];
-  //  denomenator += irValue[i];
-  // }
 
   // Take a weighted average of the IR sensor indices.
   m_linePosition = 0;
