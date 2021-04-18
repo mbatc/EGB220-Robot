@@ -10,6 +10,42 @@ read_characteristic_id = "0000ffe1"
 def full_characteristic_id(id, suffix = "-0000-1000-8000-00805f9b34fb"):
   return id + suffix
 
+class MessageHandle:
+  def _init__(self, message, timeout, client, lock, dst, handler, user_data):
+    self.message = message
+    self.client  = client
+    self.lock    = lock
+    self.recv_timeout = timeout
+    self.dst = dst
+    self.done = False
+    self.handler = handler
+    self.user_data = user_data
+
+  def __notify(self, sender: int, data: bytearray):
+    for b in data:
+      if b == 0:
+        msg = self.accum_buffer.decode('utf-8')
+        self.done = True
+        if self.handler != None:
+          self.handler(msg)
+          print(msg)
+        else:
+          print(msg)
+        self.accum_buffer = bytearray()
+      else:
+        self.accum_buffer.append(b)
+
+    
+  async def send(self):
+    await self.client.start_notify(self.read_char, self.__notify)
+    try:
+      for c in self.message.encode('utf-8'):
+        await self.client.write_gatt_char(self.dst, [c])
+    except Exception as e:
+      print("Failed to send command: " + str(e))
+    
+
+
 class Connection:
   def __init__(self, address):
     # Setup members
@@ -59,6 +95,5 @@ class Connection:
   async def __connect(self):
     await self.client.connect()
     # self._connect_failed = not await self.client.is_connected()
-    await self.client.start_notify(self.read_char, self.__notify)
     self._connect_failed = not self.client.is_connected
     self.connected = True
