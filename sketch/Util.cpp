@@ -14,3 +14,8 @@ char const * TypeName(bool*)    { return "b";    }
 char const * TypeName(...)      { return "none"; }
 
 char const * whitespace = " \n\r\t";
+
+void rollingAverage(double *pAverage, double newSample, int nSamples)
+{
+  *pAverage = (((nSamples - 1) * (*pAverage)) + newSample) / nSamples;
+}

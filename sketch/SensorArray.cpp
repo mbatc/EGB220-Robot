@@ -1,7 +1,43 @@
 #include "SensorArray.h"
 
-bool SensorArray::setup(SensorConfig conf)
-{
+void SensorArray::Sensor::setPin(int pin) {
+  m_pin = pin;
+  pinMode(m_pin, INPUT);
+}  
+
+int SensorArray::Sensor::read() {
+  m_rawValue = analogRead(m_pin);
+
+  if (m_calibrating)
+  { // Update the range of sensor values
+    m_min = min(m_min, m_rawValue);
+    m_max = max(m_max, m_rawValue);
+  }
+
+  // Remap the sensor value
+  m_value = map(m_rawValue, m_min, m_max, SENSOR_MIN, SENSOR_MAX);
+
+  // clamp the sensor value
+  m_value = min(max(m_value, SENSOR_MIN), SENSOR_MAX);
+}
+
+void SensorArray::Sensor::resetCalibration() {
+  m_min = 1024;
+  m_max = 0;
+}
+
+void SensorArray::Sensor::setCalibrating(bool calibrating) {
+  if (!m_calibrating && calibrating)
+    resetCalibration();
+  m_calibrating = calibrating;
+}
+
+int SensorArray::Sensor::getMin()      const { return m_min; }
+int SensorArray::Sensor::getMax()      const { return m_max; }
+int SensorArray::Sensor::getValue()    const { return m_value; }
+int SensorArray::Sensor::getValueRaw() const { return m_rawValue; }
+
+bool SensorArray::setup(SensorConfig conf) {
   // Store the config settings
   m_config = conf;
   
@@ -10,21 +46,8 @@ bool SensorArray::setup(SensorConfig conf)
   digitalWrite(m_config.emitPin, HIGH);
   
   // Setting IR receivers as inputs
-  for (int i = 0; i < 8; i++) {
-    pinMode(m_config.recvPins[i], INPUT);
-  }
-}
-
-double SensorArray::getLinePos() {  
-  return m_linePosition; // Line position calculated in updateLinePosition()
-}
-
-bool SensorArray::lineDetected() {
-  return m_irStdDev > m_config.detectThreshold; // High standard deviation means line is detected.
-}
-
-bool SensorArray::horizontalLineDetected() {
-  return !lineDetected() && m_irAvg < 100; // No line, but low average sensor reading (threshold could possibly be added to the config struct)
+  for (int i = 0; i < 8; i++)
+    m_sensors[i].setPin(m_config.recvPins[i]);
 }
 
 void SensorArray::update() {
@@ -35,9 +58,9 @@ void SensorArray::update() {
 void SensorArray::updateLinePosition() {
   // more debugging serial prints
   DEBUG_PRINT("     ir receiver values:");
-  for (int j = 0; j < IR_SENSOR_COUNT; j++) {
+  for (Sensor &sensor : m_sensors) {
     DEBUG_PRINT("  ");
-    DEBUG_PRINT(m_irValue[j]);
+    DEBUG_PRINT(sensor.getValue());
   }
   
   DEBUG_PRINT("    Sensor Avg: ");
@@ -61,9 +84,10 @@ void SensorArray::updateLinePosition() {
   m_linePosition = 0;
   double totalWeight = 0; // Store total weighting applied for all variables
   for (int i = 0; i < IR_SENSOR_COUNT; ++i) {
+    Sensor &sensor = m_sensors[i];
     // Calculate the weight for the sensor reading at 'i'
     // The weight is based on how different the sensor value is from the minimum value recorded
-    double dist = abs(mapf(m_irValue[i], m_irMin, m_irMax, 0, 1));
+    double dist = abs(mapf(sensor.getValue(), SENSOR_MIN, SENSOR_MAX, 0, 1));
     // Adjust the weight using a power function.
     // This will more heavily weight values closer to m_irMin.
     double weight = (1.0 - pow(dist, m_config.sensorFalloff));
@@ -75,33 +99,27 @@ void SensorArray::updateLinePosition() {
   // de-bugging serial print, can be comented out
   DEBUG_PRINT("     Line Pos: ");
   DEBUG_PRINT(m_linePosition);
+
+  rollingAverage(&m_averageLinePosition, m_linePosition, m_averageSampleCount);
 }
 
 void SensorArray::updateSensorValues() {
-  // Clear min/max values
-  m_irMin = 1024;
-  m_irMax = 0;
-
   // Read in all the sensor values
-  for (int j = 0; j < IR_SENSOR_COUNT; j++) {
-    m_irValue[j] = analogRead(m_config.recvPins[j]);
-    m_irMin = min(m_irMin, m_irValue[j]); // Get the min/max while we are at it
-    m_irMax = max(m_irMax, m_irValue[j]);
-  }
+  for (Sensor &sensor : m_sensors)
+    sensor.read();
 
   // Calculate the average value for all sensors.
   // Used to differentiate between no-line detected and a horizontal line detected.
   m_irAvg = 0;
-  for (int val : m_irValue) {
-    m_irAvg += val;
-  }
+  for (Sensor &sensor : m_sensors)
+    m_irAvg += sensor.getValue();
   m_irAvg /= IR_SENSOR_COUNT;
 
   // Calculate the standard deviation in sensor values.
   // Used to determine if the sensors are detecting a line or not.
   double sum = 0;
-  for (int val : m_irValue) {
-    sum += sq(double(val - m_irAvg));
+  for (Sensor &sensor : m_sensors) {
+    sum += sq(double(sensor.getValue() - m_irAvg));
   }
   m_irStdDev = sqrt(sum / IR_SENSOR_COUNT);
 
@@ -124,12 +142,15 @@ void SensorArray::updateSensorValues() {
   DEBUG_PRINT(m_lineMissingMilli);
 }
 
+double SensorArray::getLinePos()    { return m_linePosition; }
+double SensorArray::getLinePosRaw() { return m_averageLinePosition; }
+
+void SensorArray::setAverageSampleCount(int sampleCount) { m_averageSampleCount = sampleCount; }
+bool SensorArray::lineDetected() { return m_irStdDev > m_config.detectThreshold; }
+bool SensorArray::horizontalLineDetected() { return !lineDetected() && m_irAvg < 100; }
+
 // Get the number of milliseconds the line has not been detected continuosly.
-int SensorArray::lineMissingTime() {
-  return m_lineMissingMilli;
-}
+int SensorArray::lineMissingTime() { return m_lineMissingMilli; }
 
 // Get the number of milliseconds the line has been detected continuosly.
-int SensorArray::lineDetectedTime() {
-  return m_lineDetectedMilli;
-}
+int SensorArray::lineDetectedTime() { return m_lineDetectedMilli; }

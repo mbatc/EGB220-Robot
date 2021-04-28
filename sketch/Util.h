@@ -36,4 +36,6 @@ char const * TypeName(bool*);
 
 template<typename T> char const * TypeName() { return TypeName((T*)0); }
 
+void rollingAverage(double *pAverage, double newSample, int nSamples);
+
 #endif

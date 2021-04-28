@@ -6,49 +6,30 @@
 
 SensorArray sensorArray; // Sensor array object. Handles reading sensors and calculating line position
 
-const int motors_R     = 3;        // Right motor pin
-const int motors_L     = 11;       // Left motor pin
-const int motorsDir[2] = {17, 60}; // Motor direction pins **** not pin 60**** just havent been bothered to find it yet
+const int motors_R     = 3;          // Right motor pin
+const int motors_L     = 11;         // Left motor pin
+const int motorsDir[2] = { 17, 60 }; // Motor direction pins **** not pin 60**** just havent been bothered to find it yet
 
 bool driving = false;    // Is the motor currently driving
 int maxMotorSpeed = 170; // Max speed of the motors
 int minMotorSpeed = 0;   // Max speed of the motors
 double turnAmount = 0;   // Current amount the robot is turning. Contains a value between -1 and 1 (-1=right, 1=left)
 double speedFactor = 0;
-
+bool useRawLinePos = false;
 double kp = 1;
 double ki = 0;
 double kd = 5;
 int PIDscaleFactor = 150; // this value adjusts how sensitive the PID correction is on the turning
 
-
-// Controls the linearity of the motors change in speed. e.g. 2 means the motor
-// speed is decreased according to the curve x^2, and 3 would follow x^3.
-//
-// Larger values increase the 'deadzone' in the middle of the sensor values
-// and cause a later, more aggressive turn.
-double motorTurnFalloff = 0.75;
-
-// The maximum amount the speed will be decreased when turning.
-// Decrease this number to increase speed around corners.
-// A value of 0 will not adjust the max motor speed when cornering.
-double maxTurnSpeedDecrease = 0.5;
-
-// How much to divide the speed of both motors by if no line is detected
-// Increase to make the robot move slower when it fails to detect a line.
-// A value greater than 1 will decrease the robots speed.
-// A value of 1 will not change the robots speed.
-// A value less than 1 will increase the robots speed.
-double noLineSpeedScalar = 1.2;
-
 // Expose variables to the command interface
 Commands::VarDef cmdVars[] = {
-  { "kp",     kp },
-  { "ki",     ki },
-  { "kd",     kd },
+  { "kp", kp },
+  { "ki", ki },
+  { "kd", kd },
   { "PIDscaleFactor", PIDscaleFactor },
-  { "maxMotorSpeed", maxMotorSpeed },
-  { "minMotorSpeed", minMotorSpeed },
+  { "maxMotorSpeed",  maxMotorSpeed  },
+  { "minMotorSpeed",  minMotorSpeed  },
+  { "useRawLinePos",  useRawLinePos  },
 };
 
 // Expose functions to the command interface
@@ -119,8 +100,7 @@ int motorSpeed_R = 0; // Speed of the right motor
 // motorLowestSpeed set the lowest speed the motors are allowed to go
 void drive(int motorSpeed, int motorLowestSpeed) {
    // Get the line position calculated by the sensor array
-  double linePos = sensorArray.getLinePos();
-
+  double linePos = useRawLinePos ? sensorArray.getLinePosRaw() : sensorArray.getLinePos();
   currentTime = millis();
   double elapsedTime = (double)currentTime - previousTime;
 
@@ -153,7 +133,6 @@ void drive(int motorSpeed, int motorLowestSpeed) {
   
   previousTime = currentTime;
   
-  
   //DEBUG_PRINT("     Perror: ");
   //DEBUG_PRINT(errorPID);
   //DEBUG_PRINT("     Ierror: ");
@@ -163,12 +142,6 @@ void drive(int motorSpeed, int motorLowestSpeed) {
   DEBUG_PRINT("     Correction: ");
   DEBUG_PRINT(correction);
       
-  // Reduce the motor speed if no line is detected
-  if (!sensorArray.lineDetected() && !sensorArray.horizontalLineDetected()) {
-    motorSpeed_R /= noLineSpeedScalar;
-    motorSpeed_L /= noLineSpeedScalar;
-  }
-
   // Clamp calculated speeds between the min/max speeds given to the function
   motorSpeed_R = min(motorSpeed, max(motorLowestSpeed, motorSpeed_R));
   motorSpeed_L = min(motorSpeed, max(motorLowestSpeed, motorSpeed_L));
@@ -181,18 +154,10 @@ void drive(int motorSpeed, int motorLowestSpeed) {
   DEBUG_PRINT(motorSpeed_R);
   DEBUG_PRINT("     LMS: ");
   DEBUG_PRINT(motorSpeed_L);
-
-  //DEBUG_PRINT("     Turn amount: ");
-  //DEBUG_PRINT(turnMagnitude * SIGN(turnAmount));
 }
 
 void loop() {  
   if (commandReady) {
-    DEBUG_PRINT("\n");
-    DEBUG_PRINT("Executing Command: ");
-    DEBUG_PRINT(commandBuffer.str());
-    DEBUG_PRINT("\n");
-
     serialCmd.execute();
     commandBuffer.flush();
     commandReady = false;
