@@ -17,5 +17,5 @@ char const * whitespace = " \n\r\t";
 
 void rollingAverage(double *pAverage, double newSample, int nSamples)
 {
-  *pAverage = (((nSamples - 1) * (*pAverage)) + newSample) / nSamples;
+  *pAverage = ((*pAverage * (nSamples - 1)) + newSample) / nSamples;
 }

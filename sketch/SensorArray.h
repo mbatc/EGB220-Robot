@@ -3,7 +3,7 @@
 
 #include "Util.h"
 
-#define IR_SENSOR_COUNT 8
+#define IR_SENSOR_COUNT 6
 
 #define SENSOR_MIN 0
 #define SENSOR_MAX 1024
@@ -96,6 +96,7 @@ protected:
   double m_linePosition        = 0;
   double m_averageLinePosition = 0;
   int m_averageSampleCount     = 10;
+  
   int m_lineDetectedMilli = 0;
   int m_lineMissingMilli  = 0;
   int m_lastUpdateMilli   = 0;

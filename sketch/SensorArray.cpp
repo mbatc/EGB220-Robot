@@ -48,6 +48,8 @@ bool SensorArray::setup(SensorConfig conf) {
   // Setting IR receivers as inputs
   for (int i = 0; i < 8; i++)
     m_sensors[i].setPin(m_config.recvPins[i]);
+
+  m_averageSampleCount = 1;
 }
 
 void SensorArray::update() {
@@ -63,10 +65,10 @@ void SensorArray::updateLinePosition() {
     DEBUG_PRINT(sensor.getValue());
   }
   
-  DEBUG_PRINT("    Sensor Avg: ");
-  DEBUG_PRINT(m_irAvg);
-  DEBUG_PRINT("    Sensor Std-Dev: ");
-  DEBUG_PRINT(m_irStdDev);
+  // DEBUG_PRINT("    Sensor Avg: ");
+  // DEBUG_PRINT(m_irAvg);
+  // DEBUG_PRINT("    Sensor Std-Dev: ");
+  // DEBUG_PRINT(m_irStdDev);
 
   // If a horizontal line is detected, keep doing what ya doing
   if (horizontalLineDetected()) {
@@ -95,11 +97,6 @@ void SensorArray::updateLinePosition() {
     totalWeight += weight;        // Sum the weights so we can divide by the total later
   }
   m_linePosition /= totalWeight; // Calculate the weighted average.
-
-  // de-bugging serial print, can be comented out
-  DEBUG_PRINT("     Line Pos: ");
-  DEBUG_PRINT(m_linePosition);
-
   rollingAverage(&m_averageLinePosition, m_linePosition, m_averageSampleCount);
 }
 
@@ -142,8 +139,8 @@ void SensorArray::updateSensorValues() {
   DEBUG_PRINT(m_lineMissingMilli);
 }
 
-double SensorArray::getLinePos()    { return m_linePosition; }
-double SensorArray::getLinePosRaw() { return m_averageLinePosition; }
+double SensorArray::getLinePos()    { return m_averageLinePosition / (IR_SENSOR_COUNT - 1); }
+double SensorArray::getLinePosRaw() { return m_linePosition / (IR_SENSOR_COUNT - 1); }
 
 void SensorArray::setAverageSampleCount(int sampleCount) { m_averageSampleCount = sampleCount; }
 bool SensorArray::lineDetected() { return m_irStdDev > m_config.detectThreshold; }

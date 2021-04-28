@@ -3,6 +3,7 @@
 #include "Commands.h"
 #include "StringStream.h"
 #include "SoftwareSerial.h"
+#include "PIDController.h"
 
 SensorArray sensorArray; // Sensor array object. Handles reading sensors and calculating line position
 
@@ -13,23 +14,25 @@ const int motorsDir[2] = { 17, 60 }; // Motor direction pins **** not pin 60****
 bool driving = false;    // Is the motor currently driving
 int maxMotorSpeed = 170; // Max speed of the motors
 int minMotorSpeed = 0;   // Max speed of the motors
+int avgCount = 1;
 double turnAmount = 0;   // Current amount the robot is turning. Contains a value between -1 and 1 (-1=right, 1=left)
 double speedFactor = 0;
 bool useRawLinePos = false;
 double kp = 1;
 double ki = 0;
 double kd = 5;
-int PIDscaleFactor = 150; // this value adjusts how sensitive the PID correction is on the turning
+double PIDScaleFactor = 1; // this value adjusts how sensitive the PID correction is on the turning
 
 // Expose variables to the command interface
 Commands::VarDef cmdVars[] = {
   { "kp", kp },
   { "ki", ki },
   { "kd", kd },
-  { "PIDscaleFactor", PIDscaleFactor },
+  { "PIDscaleFactor", PIDScaleFactor },
   { "maxMotorSpeed",  maxMotorSpeed  },
   { "minMotorSpeed",  minMotorSpeed  },
   { "useRawLinePos",  useRawLinePos  },
+  { "avgCount", avgCount },
 };
 
 // Expose functions to the command interface
@@ -43,6 +46,8 @@ SoftwareSerial bt(10, 9);
 // Create the command set
 Commands cmdSet(cmdList, ArraySize(cmdList), cmdVars, ArraySize(cmdVars));
 SerialCommands serialCmd(&cmdSet, &commandBuffer, &bt);
+PIDController pidController;
+float correction = 0;
 
 void setup() {
   // Enabling serial
@@ -56,7 +61,8 @@ void setup() {
     .emitPin = 14,
 
     // IR Sensor Pins
-    .recvPins = { 15, 2, 1, 0, 8, 7, 29, 6 },
+    // .recvPins = { 15, 2, 1, 0, 8, 7, 29, 6 },
+    .recvPins = { 2, 1, 0, 8, 7, 29 },
 
     // Minimum std deviation between sensor readings for a line to be detected
     .detectThreshold = 150,
@@ -83,15 +89,6 @@ void applyMotorSpeed(int leftMotor, int rightMotor) {
   analogWrite(motors_R, rightMotor);
 }
 
-unsigned long currentTime, previousTime;
-double errorPID = 0;
-double lastError = 0;
-double correction = 0;
-double cumError = 0;
-double rateError = 0;
-double idealLinePos = 3.5; // the ideal position of the robot on the line
-bool isFirst = true;
-
 int motorSpeed_L = 0; // Speed of the left motor
 int motorSpeed_R = 0; // Speed of the right motor
 
@@ -101,22 +98,21 @@ int motorSpeed_R = 0; // Speed of the right motor
 void drive(int motorSpeed, int motorLowestSpeed) {
    // Get the line position calculated by the sensor array
   double linePos = useRawLinePos ? sensorArray.getLinePosRaw() : sensorArray.getLinePos();
-  currentTime = millis();
-  double elapsedTime = (double)currentTime - previousTime;
+  sensorArray.setAverageSampleCount(avgCount);
+
+  pidController.setTarget(0.5);
+  pidController.setP(kp);
+  pidController.setI(ki);
+  pidController.setD(kd);
+  
+  // de-bugging serial print, can be comented out
+  DEBUG_PRINT("     Line Pos: ");
+  DEBUG_PRINT(linePos);
 
   // Update the PID controller if a line is detected
   if (sensorArray.lineDetected()) {
-    errorPID  = idealLinePos - linePos;
-    if (!isFirst) {
-      cumError += errorPID * elapsedTime; 
-      rateError = (errorPID - lastError)/elapsedTime;
-    }
-    isFirst = false;
-    correction = kp * errorPID + ki * cumError + kd * rateError;
-    lastError = errorPID;
+    correction = pidController.addSample(linePos, millis()) * (motorSpeed - motorLowestSpeed) * PIDScaleFactor;
 
-    correction = PIDscaleFactor * correction * (motorSpeed - motorLowestSpeed);
-    
     if (correction > 0){
       motorSpeed_R = motorSpeed - correction;
       motorSpeed_L = motorSpeed;
@@ -125,26 +121,18 @@ void drive(int motorSpeed, int motorLowestSpeed) {
       motorSpeed_L = motorSpeed + correction;
       motorSpeed_R = motorSpeed;
     }
-
+  
     int cornerAdjustment = abs(motorSpeed_L - motorSpeed_R) * speedFactor;
     motorSpeed_L -= cornerAdjustment;
     motorSpeed_R -= cornerAdjustment;
+          
+    // Clamp calculated speeds between the min/max speeds given to the function
+    motorSpeed_R = min(motorSpeed, max(motorLowestSpeed, motorSpeed_R));
+    motorSpeed_L = min(motorSpeed, max(motorLowestSpeed, motorSpeed_L));
   }
   
-  previousTime = currentTime;
-  
-  //DEBUG_PRINT("     Perror: ");
-  //DEBUG_PRINT(errorPID);
-  //DEBUG_PRINT("     Ierror: ");
-  //DEBUG_PRINT(cumError);
-  //DEBUG_PRINT("     Derror: ");
-  //DEBUG_PRINT(rateError);
   DEBUG_PRINT("     Correction: ");
   DEBUG_PRINT(correction);
-      
-  // Clamp calculated speeds between the min/max speeds given to the function
-  motorSpeed_R = min(motorSpeed, max(motorLowestSpeed, motorSpeed_R));
-  motorSpeed_L = min(motorSpeed, max(motorLowestSpeed, motorSpeed_L));
 
   // Updating the motors with their new speeds
   applyMotorSpeed(motorSpeed_L, motorSpeed_R);
@@ -188,8 +176,7 @@ void loop() {
     applyMotorSpeed(0, 0);
 
     // Reset accum error when we loose the line
-    cumError = 0;
-    isFirst = true;
+    pidController.reset();
     
     // Don't start driving until the line has been detected for more than 1 second.
     driving |= sensorArray.lineDetectedTime() > 1000;
