@@ -5,6 +5,7 @@
 #include "SoftwareSerial.h"
 #include "PIDController.h"
 #include "PIDTrainer.h"
+#include "Bluetooth.h"
 
 SensorArray sensorArray; // Sensor array object. Handles reading sensors and calculating line position
 
@@ -27,11 +28,6 @@ double ki = 0;
 double kd = 5;
 double PIDScaleFactor = 1; // this value adjusts how sensitive the PID correction is on the turning
 
-// Create the serial interface for the command set
-StringStream commandBuffer;
-bool commandReady = false;
-SoftwareSerial bt(10, 9);
-
 float correction = 0;
 PIDController pidController;
 PIDTrainer    pidTrainer(&pidController);
@@ -45,10 +41,7 @@ void nextIteration()
   }
 }
 
-void sendParams()
-{
-  shouldSendParams = true;  
-}
+void sendParams();
 
 // Expose variables to the command interface
 Commands::VarDef cmdVars[] = {
@@ -71,13 +64,12 @@ Commands::CmdDef cmdList[] = {
 
 // Create the command set
 Commands cmdSet(cmdList, ArraySize(cmdList), cmdVars, ArraySize(cmdVars));
-SerialCommands serialCmd(&cmdSet, &commandBuffer, &bt);
+
+Bluetooth bt(10, 9, &cmdSet);
 
 void setup() {
   // Enabling serial
   Serial.begin(9600);
-  bt.begin(9600);
- //DEBUG_PRINT("Ready...");
 
   // Configuration for the IR sensor array
   SensorConfig sensorConf = {
@@ -107,6 +99,17 @@ void setup() {
   }
   
   pidController.setTarget(0.5);
+}
+
+void sendParams()
+{
+  bt.print("PID: ");
+  bt.print("  ");
+  bt.print(kp);
+  bt.print("  ");
+  bt.print(ki);
+  bt.print("  ");
+  bt.print(kd);
 }
 
 // This function takes a speed for each motor and sets their pins.
@@ -167,27 +170,10 @@ void drive(int motorSpeed, int motorLowestSpeed) {
   // DEBUG_PRINT(motorSpeed_L);
 }
 
-void loop() {  
-  if (commandReady) {
-    serialCmd.execute();
-    commandBuffer.flush();
-    commandReady = false;
-  }
-  
-  if (bt.available()) {
-    commandReady |= bt.peek() == '\n'; // New line signals the end of a command 
-    commandBuffer.write((char)bt.read());
-  }
-  else if (!commandBuffer.available() && shouldSendParams) {
-    bt.print("PID: ");
-    bt.print(kp);
-    bt.print(" ");
-    bt.print(ki);
-    bt.print(" ");
-    bt.print(kd);
-    bt.write('\0');
-    shouldSendParams = false;
-  }
+void loop() {
+  // Update the bluetooth connection
+  // reads/writes data from the module and processes commands
+  bt.update();
 
   // Am having a weird issue where the left motor direction reverts to backwards even though I've set it to forwards
   // Setting to forwards every loop seems to fix it for now though

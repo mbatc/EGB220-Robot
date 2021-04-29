@@ -26,15 +26,19 @@ public:
 
   PIDTrainer(PIDController *pController);
 
+  // Set the step size for each parameter
   void setStepSize(int paramID, double stepSize);
 
   // Update the trainer
   void update();
 
+  // Begin a new training iteration
   void begin();
 
+  // Apply the best model to the PIDController
   void applyBest();
 
+  // End the current training itertion
   double end();
 
 protected:
