@@ -59,11 +59,11 @@ void SensorArray::update() {
 
 void SensorArray::updateLinePosition() {
   // more debugging serial prints
-  DEBUG_PRINT("     ir receiver values:");
-  for (Sensor &sensor : m_sensors) {
-    DEBUG_PRINT("  ");
-    DEBUG_PRINT(sensor.getValue());
-  }
+  // DEBUG_PRINT("     ir receiver values:");
+  // for (Sensor &sensor : m_sensors) {
+  //   DEBUG_PRINT("  ");
+  //   DEBUG_PRINT(sensor.getValue());
+  // }
   
   // DEBUG_PRINT("    Sensor Avg: ");
   // DEBUG_PRINT(m_irAvg);

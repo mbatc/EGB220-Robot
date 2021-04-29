@@ -4,6 +4,7 @@
 #include "StringStream.h"
 #include "SoftwareSerial.h"
 #include "PIDController.h"
+#include "PIDTrainer.h"
 
 SensorArray sensorArray; // Sensor array object. Handles reading sensors and calculating line position
 
@@ -17,11 +18,37 @@ int minMotorSpeed = 0;   // Max speed of the motors
 int avgCount = 1;
 double turnAmount = 0;   // Current amount the robot is turning. Contains a value between -1 and 1 (-1=right, 1=left)
 double speedFactor = 0;
-bool useRawLinePos = false;
+int useRawLinePos = 0;
+int training = 0;
+bool shouldSendParams = false;
+
 double kp = 1;
 double ki = 0;
 double kd = 5;
 double PIDScaleFactor = 1; // this value adjusts how sensitive the PID correction is on the turning
+
+// Create the serial interface for the command set
+StringStream commandBuffer;
+bool commandReady = false;
+SoftwareSerial bt(10, 9);
+
+float correction = 0;
+PIDController pidController;
+PIDTrainer    pidTrainer(&pidController);
+
+void nextIteration()
+{
+  if (training)
+  {
+    pidTrainer.end();
+    pidTrainer.begin();
+  }
+}
+
+void sendParams()
+{
+  shouldSendParams = true;  
+}
 
 // Expose variables to the command interface
 Commands::VarDef cmdVars[] = {
@@ -33,21 +60,18 @@ Commands::VarDef cmdVars[] = {
   { "minMotorSpeed",  minMotorSpeed  },
   { "useRawLinePos",  useRawLinePos  },
   { "avgCount", avgCount },
+  { "training", training },
 };
 
 // Expose functions to the command interface
-Commands::CmdDef cmdList[] = {};
-
-// Create the serial interface for the command set
-StringStream commandBuffer;
-bool commandReady = false;
-SoftwareSerial bt(10, 9);
+Commands::CmdDef cmdList[] = {
+  { "nextIteration", nextIteration },
+  { "sendParams", sendParams }
+};
 
 // Create the command set
 Commands cmdSet(cmdList, ArraySize(cmdList), cmdVars, ArraySize(cmdVars));
 SerialCommands serialCmd(&cmdSet, &commandBuffer, &bt);
-PIDController pidController;
-float correction = 0;
 
 void setup() {
   // Enabling serial
@@ -81,6 +105,8 @@ void setup() {
     pinMode(motors_R, OUTPUT);
     pinMode(motors_L, OUTPUT);
   }
+  
+  pidController.setTarget(0.5);
 }
 
 // This function takes a speed for each motor and sets their pins.
@@ -99,19 +125,16 @@ void drive(int motorSpeed, int motorLowestSpeed) {
    // Get the line position calculated by the sensor array
   double linePos = useRawLinePos ? sensorArray.getLinePosRaw() : sensorArray.getLinePos();
   sensorArray.setAverageSampleCount(avgCount);
-
-  pidController.setTarget(0.5);
-  pidController.setP(kp);
-  pidController.setI(ki);
-  pidController.setD(kd);
   
   // de-bugging serial print, can be comented out
-  DEBUG_PRINT("     Line Pos: ");
-  DEBUG_PRINT(linePos);
+  // DEBUG_PRINT("     Line Pos: ");
+  // DEBUG_PRINT(linePos);
 
   // Update the PID controller if a line is detected
   if (sensorArray.lineDetected()) {
     correction = pidController.addSample(linePos, millis()) * (motorSpeed - motorLowestSpeed) * PIDScaleFactor;
+
+    pidTrainer.update();
 
     if (correction > 0){
       motorSpeed_R = motorSpeed - correction;
@@ -138,10 +161,10 @@ void drive(int motorSpeed, int motorLowestSpeed) {
   applyMotorSpeed(motorSpeed_L, motorSpeed_R);
 
   // More debugging serial prints
-  DEBUG_PRINT("     RMS: ");
-  DEBUG_PRINT(motorSpeed_R);
-  DEBUG_PRINT("     LMS: ");
-  DEBUG_PRINT(motorSpeed_L);
+  // DEBUG_PRINT("     RMS: ");
+  // DEBUG_PRINT(motorSpeed_R);
+  // DEBUG_PRINT("     LMS: ");
+  // DEBUG_PRINT(motorSpeed_L);
 }
 
 void loop() {  
@@ -155,6 +178,16 @@ void loop() {
     commandReady |= bt.peek() == '\n'; // New line signals the end of a command 
     commandBuffer.write((char)bt.read());
   }
+  else if (!commandBuffer.available() && shouldSendParams) {
+    bt.print("PID: ");
+    bt.print(kp);
+    bt.print(" ");
+    bt.print(ki);
+    bt.print(" ");
+    bt.print(kd);
+    bt.write('\0');
+    shouldSendParams = false;
+  }
 
   // Am having a weird issue where the left motor direction reverts to backwards even though I've set it to forwards
   // Setting to forwards every loop seems to fix it for now though
@@ -165,10 +198,24 @@ void loop() {
   sensorArray.update();
 
   if (driving) {
+    if (training)
+    {
+      pidTrainer.begin();
+      kp = pidController.getP();
+      ki = pidController.getI();
+      kd = pidController.getD();
+    }
+    else
+    {
+      pidController.setP(kp);
+      pidController.setI(ki);
+      pidController.setD(kd);
+    }
+
     // Drive the robot
     drive(maxMotorSpeed, minMotorSpeed);
 
-    // Keep driving while the line has not been missing for more than 0.5 seconds
+    // Keep driving while the line has not been missing for more than 0.1 seconds
     driving &= sensorArray.lineMissingTime() < 100;
   }
   else {
@@ -180,6 +227,8 @@ void loop() {
     
     // Don't start driving until the line has been detected for more than 1 second.
     driving |= sensorArray.lineDetectedTime() > 1000;
+
+    pidTrainer.end();
   }
 
   // Print a new line on serial so it looks nice

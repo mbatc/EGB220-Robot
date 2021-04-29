@@ -22,6 +22,7 @@ extern char const * whitespace;
 double mapf(double x, double inMin, double inMax, double outMin, double outMax);
 
 #define SIGN(val) (val < 0 ? -1 : 1)
+#define FLT_MAX 3.402823466E+38
 
 // Simple way to get a unique integer for each type
 int __NextTypeID();
