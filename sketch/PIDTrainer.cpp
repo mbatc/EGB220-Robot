@@ -47,11 +47,11 @@ void PIDTrainer::begin()
   m_currentModel.start = millis();
 
   bt.print("New Training Iteration (PID: ");
-  bt.print(m_pPID->getP());
+  bt.print(m_pPID->getP(), 7);
   bt.print("  ");
-  bt.print(m_pPID->getI());
+  bt.print(m_pPID->getI(), 7);
   bt.print("  ");
-  bt.print(m_pPID->getD());
+  bt.print(m_pPID->getD(), 7);
   bt.print(")");
   m_isTraining = true;
 }
@@ -66,7 +66,7 @@ double PIDTrainer::end()
   // Scale the cost based on how long we were recording the error for
   m_currentModel.cost /=  millis() - m_currentModel.start;
   bt.print("Finished Interation (Cost: ");
-  bt.print(m_currentModel.cost);
+  bt.print(m_currentModel.cost, 7);
   bt.print(")");
 
   // Check if the current model is the best, if it is, keep track of it

@@ -27,6 +27,9 @@ double kp = 1;
 double ki = 0;
 double kd = 5;
 double PIDScaleFactor = 1; // this value adjusts how sensitive the PID correction is on the turning
+double avgCorrection = 0;
+double avgSmoothing = 2;
+int correctionSamples = 5;
 
 float correction = 0;
 PIDController pidController;
@@ -101,17 +104,6 @@ void setup() {
   pidController.setTarget(0.5);
 }
 
-void sendParams()
-{
-  bt.print("PID: ");
-  bt.print("  ");
-  bt.print(kp);
-  bt.print("  ");
-  bt.print(ki);
-  bt.print("  ");
-  bt.print(kd);
-}
-
 // This function takes a speed for each motor and sets their pins.
 void applyMotorSpeed(int leftMotor, int rightMotor) {
   analogWrite(motors_L, leftMotor);
@@ -137,6 +129,10 @@ void drive(int motorSpeed, int motorLowestSpeed) {
   if (sensorArray.lineDetected()) {
     correction = pidController.addSample(linePos, millis()) * (motorSpeed - motorLowestSpeed) * PIDScaleFactor;
 
+    // Calculate an exponential moving average for the correction value.
+    // This is used to adjust the 
+    expMovingAverage(&avgCorrection, correction, correctionSamples, avgSmoothing);
+    
     pidTrainer.update();
 
     if (correction > 0){
@@ -148,7 +144,7 @@ void drive(int motorSpeed, int motorLowestSpeed) {
       motorSpeed_R = motorSpeed;
     }
   
-    int cornerAdjustment = abs(motorSpeed_L - motorSpeed_R) * speedFactor;
+    int cornerAdjustment = speedFactor * avgCorrection;
     motorSpeed_L -= cornerAdjustment;
     motorSpeed_R -= cornerAdjustment;
           
