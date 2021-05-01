@@ -6,6 +6,7 @@
 #include "PIDController.h"
 #include "PIDTrainer.h"
 #include "Bluetooth.h"
+#include "List.h"
 
 SensorArray sensorArray; // Sensor array object. Handles reading sensors and calculating line position
 
