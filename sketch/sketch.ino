@@ -44,8 +44,6 @@ void nextIteration()
   }
 }
 
-void sendParams();
-
 // Expose variables to the command interface
 Commands::VarDef cmdVars[] = {
   { "kp", kp },
@@ -61,8 +59,7 @@ Commands::VarDef cmdVars[] = {
 
 // Expose functions to the command interface
 Commands::CmdDef cmdList[] = {
-  { "nextIteration", nextIteration },
-  { "sendParams", sendParams }
+  { "nextIteration", nextIteration }
 };
 
 // Create the command set
