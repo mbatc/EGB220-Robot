@@ -14,23 +14,29 @@ const int motors_R     = 3;          // Right motor pin
 const int motors_L     = 11;         // Left motor pin
 const int motorsDir[2] = { 17, 60 }; // Motor direction pins **** not pin 60**** just havent been bothered to find it yet
 
-bool driving = false;    // Is the motor currently driving
-int maxMotorSpeed = 170; // Max speed of the motors
-int minMotorSpeed = 0;   // Max speed of the motors
-int avgCount = 1;
-double turnAmount = 0;   // Current amount the robot is turning. Contains a value between -1 and 1 (-1=right, 1=left)
-double speedFactor = 0;
-int useRawLinePos = 0;
-int training = 0;
-bool shouldSendParams = false;
+bool   driving        = false;    // Is the motor currently driving
+
+int    maxMotorSpeed  = 170; // Max speed of the motors
+int    minMotorSpeed  = 0;   // Max speed of the motors
+int    curMotorSpeed  = maxMotorSpeed;
+int    acceleration   = 5;
+int    slowSpeed      = maxMotorSpeed / 2;
+
+int    avgCount       = 1;
+double turnAmount     = 0;   // Current amount the robot is turning. Contains a value between -1 and 1 (-1=right, 1=left)
+int    useRawLinePos  = 0;
+int    training       = 0;
 
 double kp = 1;
 double ki = 0;
 double kd = 5;
 double PIDScaleFactor = 1; // this value adjusts how sensitive the PID correction is on the turning
-double avgCorrection = 0;
+
+double avgSpeedDiff = 0;
 double avgSmoothing = 2;
-int correctionSamples = 5;
+int speedDiffSamples = 5;
+double changeThreshold = 0.05;
+double speedUpThreshold = 0.2;
 
 float correction = 0;
 PIDController pidController;
@@ -55,7 +61,10 @@ Commands::VarDef cmdVars[] = {
   { "minMotorSpeed",  minMotorSpeed  },
   { "useRawLinePos",  useRawLinePos  },
   { "avgCount", avgCount },
-  { "training", training },
+  { "changeThreshold", changeThreshold },
+  { "acceleration", acceleration },
+  { "slowSpeed", slowSpeed },
+  { "speedUpThreshold", speedUpThreshold }
 };
 
 // Expose functions to the command interface
@@ -114,54 +123,55 @@ int motorSpeed_R = 0; // Speed of the right motor
 // Funtion to drive the robot, takes a speed value between 0 and 255 (0% and 100%) as the top speed
 // both motors run at MotorSpeed until it sees a corner, then one wheel is ramped down in speed based on how sharp the corner is. this can be edited to make one wheel slow and the other speed up if need be
 // motorLowestSpeed set the lowest speed the motors are allowed to go
-void drive(int motorSpeed, int motorLowestSpeed) {
+void drive() {
    // Get the line position calculated by the sensor array
   double linePos = useRawLinePos ? sensorArray.getLinePosRaw() : sensorArray.getLinePos();
   sensorArray.setAverageSampleCount(avgCount);
   
-  // de-bugging serial print, can be comented out
-  // DEBUG_PRINT("     Line Pos: ");
-  // DEBUG_PRINT(linePos);
+  debugPrint("D Factor", pidController.getRateOfChange());
+
+  if (abs(pidController.getRateOfChange()) > changeThreshold) {
+    curMotorSpeed = slowSpeed;
+  }
 
   // Update the PID controller if a line is detected
   if (sensorArray.lineDetected()) {
-    correction = pidController.addSample(linePos, millis()) * (motorSpeed - motorLowestSpeed) * PIDScaleFactor;
+    correction = pidController.addSample(linePos, millis()) * (curMotorSpeed - minMotorSpeed) * PIDScaleFactor;
 
-    // Calculate an exponential moving average for the correction value.
-    // This is used to adjust the 
-    expMovingAverage(&avgCorrection, correction, correctionSamples, avgSmoothing);
-    
     pidTrainer.update();
 
     if (correction > 0){
-      motorSpeed_R = motorSpeed - correction;
-      motorSpeed_L = motorSpeed;
+      motorSpeed_R = curMotorSpeed - correction;
+      motorSpeed_L = curMotorSpeed;
     }
     else if (correction < 0){
-      motorSpeed_L = motorSpeed + correction;
-      motorSpeed_R = motorSpeed;
+      motorSpeed_L = curMotorSpeed + correction;
+      motorSpeed_R = curMotorSpeed;
     }
-  
-    int cornerAdjustment = speedFactor * avgCorrection;
-    motorSpeed_L -= cornerAdjustment;
-    motorSpeed_R -= cornerAdjustment;
           
     // Clamp calculated speeds between the min/max speeds given to the function
-    motorSpeed_R = min(motorSpeed, max(motorLowestSpeed, motorSpeed_R));
-    motorSpeed_L = min(motorSpeed, max(motorLowestSpeed, motorSpeed_L));
+    motorSpeed_R = min(maxMotorSpeed, max(minMotorSpeed, motorSpeed_R));
+    motorSpeed_L = min(maxMotorSpeed, max(minMotorSpeed, motorSpeed_L));
+    
+    // Calculate an exponential moving average for the correction value.
+    expMovingAverage(&avgSpeedDiff, motorSpeed_L - motorSpeed_R, speedDiffSamples, avgSmoothing);
+
+    float diffFactor = abs(avgSpeedDiff) / (float)curMotorSpeed;
+    debugPrint("avg Diff", avgSpeedDiff);
+    if (diffFactor < speedUpThreshold) {
+      curMotorSpeed += acceleration;
+      curMotorSpeed = min(curMotorSpeed, maxMotorSpeed);
+    }
   }
   
-  DEBUG_PRINT("     Correction: ");
-  DEBUG_PRINT(correction);
+  debugPrint("motorSpeed", curMotorSpeed);
+  debugPrint("Correction", correction);
+  
+  debugPrint("LMS", motorSpeed_L);
+  debugPrint("RMS", motorSpeed_R);
 
   // Updating the motors with their new speeds
   applyMotorSpeed(motorSpeed_L, motorSpeed_R);
-
-  // More debugging serial prints
-  // DEBUG_PRINT("     RMS: ");
-  // DEBUG_PRINT(motorSpeed_R);
-  // DEBUG_PRINT("     LMS: ");
-  // DEBUG_PRINT(motorSpeed_L);
 }
 
 void loop() {
@@ -178,22 +188,20 @@ void loop() {
   sensorArray.update();
 
   if (driving) {
-    if (training)
-    {
+    if (training) {
       pidTrainer.begin();
       kp = pidController.getP();
       ki = pidController.getI();
       kd = pidController.getD();
     }
-    else
-    {
+    else {
       pidController.setP(kp);
       pidController.setI(ki);
       pidController.setD(kd);
     }
 
     // Drive the robot
-    drive(maxMotorSpeed, minMotorSpeed);
+    drive();
 
     // Keep driving while the line has not been missing for more than 0.1 seconds
     driving &= sensorArray.lineMissingTime() < 100;

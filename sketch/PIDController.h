@@ -8,7 +8,11 @@ public:
   // Returns a correction value to be applied to the system
   float addSample(float error, int currentTime);
   void setTarget(float setPoint);
-  
+
+  // Get the rate of change of the error per second
+  float getRateOfChange() const;
+
+  // Get the last error
   float getError() const;
   
   void reset();
@@ -28,10 +32,11 @@ protected:
   float m_ki = 0;
   float m_kd = 1;
   float m_setPoint = 0.0f;
-  
+  float m_rateOfChange = 0;
+
+  int m_lastTime    = 0;
   float m_accum     = 0;
   float m_lastError = 0;
-  int m_lastTime    = 0;
   bool m_isFirst    = false;
 };
 

@@ -12,17 +12,19 @@ float PIDController::addSample(float sample, int currentTime)
   float rateError = 0.0f;
   if (!m_isFirst) {
     m_accum += error * elapsedTime; 
-    rateError = (error - m_lastError) / elapsedTime;
-  }
-
+    m_rateOfChange = (error - m_lastError) / elapsedTime;
+  }  
+  
   // Update controller state
   m_isFirst   = false;
   m_lastError = error;
   m_lastTime  = currentTime;
 
   // Calculate the correction value
-  return getP() * error + getI() * m_accum + getD() * rateError;
+  return m_kp * error + m_ki * m_accum + m_rateOfChange * m_kd;
 }
+
+float PIDController::getRateOfChange() const { return m_rateOfChange * 1000; }
 
 void PIDController::reset()
 {

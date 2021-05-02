@@ -22,5 +22,5 @@ void rollingAverage(double *pAverage, double newSample, int nSamples)
 
 void expMovingAverage(double *pAverage, double newSample, int nSamples, double smoothing)
 {
-  return newSample * (smoothing / (1 + nSamples)) + (*pAverage) * (1 - (smoothing / (1 + nSamples)));
+  *pAverage = newSample * (smoothing / (1 + nSamples)) + (*pAverage) * (1 - (smoothing / (1 + nSamples)));
 }

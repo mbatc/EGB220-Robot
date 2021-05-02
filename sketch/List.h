@@ -1,60 +1,6 @@
-#include "stdio.h"
-#include "stdint.h"
-#include <new.h>
+#include "Util.h"
 
 #define INVALID_INDEX UINT32_MAX
-
-// This namespace contains some utility functions for initializing, copying
-// and moving objects, and arrays of objects.
-namespace util
-{
-  template<typename T> struct identity { typedef T type; };
-
-  template<typename T> T &&forward(typename identity<T>::type &o) { return static_cast<typename identity<T>::type &&>(o); }
-  template<typename T> T &&move(T &o)                             { return static_cast<T&&>(o); }
-  template<typename T> T   copy(T const &o)                       { return T(o); }
-
-  template<typename T, typename... Args>
-  void init(T *pMem, Args&&... args) {
-    new (pMem) T(forward<Args>(args)...);
-  }
-
-  template<typename T> void destruct(T *pValue) { pValue->~T(); }
-
-  template<typename T, typename... Args>
-  void initArray(T *pData, size_t count, Args&&... args) {
-    while (count-- != 0)
-      init(pData++, forward<Args>(args)...);
-  }
-
-  template<typename T>
-  void destructArray(T *pData, size_t count) {
-    while (count-- != 0)
-      destruct(pData++);
-  }
-
-  template<typename T>
-  void initArrayCopy(T *pDest, T const *pSrc, size_t count) {
-    while (count-- != 0)
-      init(pDest++, *(pSrc++));
-  }
-
-  // Init an array iterating forward
-  template<typename T>
-  void initArrayMove(T *pDest, T *pSrc, size_t count) {
-    while (count-- != 0)
-      init(pDest++, move(*(pSrc++)));
-  }
-
-  // Init an array iterating backward
-  template<typename T>
-  void initArrayMoveReversed(T *pDest, T *pSrc, size_t count) {
-    pDest = pDest + count;
-    pSrc = pSrc + count;
-    while (count-- != 0)
-      init(--pDest, move(*(--pSrc)));
-  }
-}
 
 template<typename T>
 class List
@@ -153,6 +99,14 @@ public:
         return i;
     return INVALID_INDEX;
   }
+
+  // Get the item at the start of the list
+  T const & front() const;
+  T &       front();
+
+  // Get the item at the back of the list
+  T const & back() const;
+  T &       back();
 
   // Get a value in the list
   T const &get(size_t index) const { return data()[index]; }
