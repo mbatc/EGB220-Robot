@@ -1,4 +1,82 @@
+import math
+import sys
+
 import imgui
+
+
+def to_rads(degs):
+  return degs * math.pi / 180
+
+def to_degs(rads):
+  return rads * 180 / math.pi
+
+class Vector2:
+  def __init__(self, x, y):
+    self.x = x
+    self.y = y
+
+  def add(self, vec):
+    return Vector2(self.x + vec.x, self.y + vec.y)
+
+  def sub(self, vec):
+    return Vector2(self.x - vec.x, self.y - vec.y)
+
+  def mul(self, vec):
+    return Vector2(self.x * vec.x, self.y * vec.y)
+    
+  def div(self, vec):
+    return Vector2(self.x / vec.x, self.y / vec.y)
+
+  def scale(self, value):
+    return Vector2(self.x * value, self.y * value)
+
+  def dot(self, vec):
+    return self.x * vec.x + self.y * vec.y
+
+  def cross(self, vec):
+    return self.x * self.y - self.y * vec.x
+
+  def rotate(self, degs):
+    '''
+    Rotate this vector by the specified degrees
+    '''
+    cs = math.cos(to_rads(degs))
+    sn = math.sin(to_rads(degs))
+    px = self.x * cs - self.y * sn; 
+    py = self.x * sn + self.y * cs;
+    return Vector2(px, py)
+
+  def mag(self):
+    '''
+    Get the magnitude of this vector
+    '''
+    return math.sqrt(self.x * self.x + self.y * self.y)
+
+  def normalize(self):
+    return self.scale(1 / self.mag())
+
+  def angle(self, vec):
+    '''
+    Get the angle between two vectors
+    '''
+    return to_degs(math.acos(self.dot(vec) / (self.mag() * vec.mag())))
+
+  def min(self, vec):
+    return Vector2(min(self.x, vec.x), min(self.y, vec.y))
+
+  def max(self, vec):
+    return Vector2(max(self.x, vec.x), max(self.y, vec.y))
+
+  def equals(self, vec):
+    return self.x == vec.x and self.y == vec.y
+
+  @staticmethod
+  def largest():
+    return Vector2(sys.float_info.max, sys.float_info.max)
+
+  @staticmethod
+  def smallest():
+    return Vector2(sys.float_info.min, sys.float_info.min)
 
 class Window:
   def __init__(self, ui, x, y, width, height, name):
@@ -35,8 +113,6 @@ class Window:
     self.__begin()
     self.on_draw()
     self.__end()
-
-
 
 class CommandWindow(Window):
   def __init__(self, ui, x, y, width, height):
@@ -110,8 +186,6 @@ class ConnectionWindow(Window):
     else:
       if imgui.button("scan for devices", width):
         self.app.start_scanner()
-
-
 
 class ConsoleWindow(Window):
   def __init__(self, ui, x, y, width, height, take_focus=True):
@@ -199,6 +273,289 @@ class ConsoleWindow(Window):
         self.input = ""
         self.take_focus()
 
+STRAIGHT = 0
+RTURN    = 1
+LTURN    = 2
+
+TRACK_TYPE_NAME = [
+  'Straight',
+  'Right Turn',
+  'Left Turn'
+]
+
+SEGMENT_LINE = 0
+SEGMENT_ARC  = 1
+
+def sign(x):
+  return -1 if x < 0 else 1
+
+class Segment:
+  def __init__(self, type, params):
+    self.type  = type
+    self.params = params
+
+  def draw(self, draw_list, origin, offset, scale, is_bg):
+    if (self.type == SEGMENT_LINE):
+      self.draw_line(draw_list, origin, offset, scale, is_bg)
+    elif (self.type == SEGMENT_ARC):
+      self.draw_arc(draw_list, origin, offset, scale, is_bg)
+
+  def draw_line(self, draw_list, origin, offset, scale, is_bg):
+    start = self.params['start']
+    end   = self.params['end']
+    col   = self.params['colour'] if 'colour' in self.params else (1, 1, 1, 1)
+
+    start = start.sub(origin).scale(scale).add(offset)
+    end   = end.sub(origin).scale(scale).add(offset)
+
+    if is_bg:
+      draw_list.add_line(start.x, start.y, end.x, end.y, imgui.get_color_u32_rgba(0, 0, 0, 1), scale)
+    else:
+      draw_list.add_line(start.x, start.y, end.x, end.y, imgui.get_color_u32_rgba(col[0], col[1], col[2], col[3]), 0.1 * scale)
+
+  def draw_arc(self, draw_list, origin, offset, scale, is_bg):
+    start     = self.params['start']  # The start point of the arg
+    center    = self.params['center'] # The center of the arc
+    arc_angle = self.params['arc']   # The size of the arg in degrees
+    col       = self.params['colour'] if 'colour' in self.params else (1, 1, 1, 1) # The colour of the arc
+
+    # Calculate how many line segments to draw the arc with
+    num_segments = math.ceil(max(abs(arc_angle) / 5, 1))
+
+    # Calculate the angular size of each segment
+    step = arc_angle / num_segments
+
+    # Get the vector from the center to the start position.
+    # We will rotate this vector to get each position.
+    rot_arm = start.sub(center)
+
+    marker_start = start.sub(rot_arm.normalize().scale(0.1)).sub(origin).scale(scale).add(offset)
+    marker_end   = start.sub(rot_arm.normalize().scale(0.2)).sub(origin).scale(scale).add(offset)
+
+    # Calculate points along the segment
+    points  = [ start.sub(origin).scale(scale).add(offset) ]
+    start_tangent = rot_arm.rotate(90).normalize().scale(sign(arc_angle))
+    for i in range(num_segments):
+      rot_arm = rot_arm.rotate(step) # Rotate our offset vector
+      seg_end = center.add(rot_arm) # The end of the segment is the center + the rotated offset vector
+      points.append(seg_end.sub(origin).scale(scale).add(offset))
+    end_tangent = rot_arm.rotate(90).normalize().scale(sign(arc_angle))
+    points.insert(0, points[0].sub(start_tangent))
+    points.append(points[-1].add(end_tangent))
+
+    end_marker_start = points[-1].sub(rot_arm.normalize().scale(0.1 * scale))
+    end_marker_end   = points[-1].sub(rot_arm.normalize().scale(0.2 * scale))
+
+    # Convert to imgui vec2's      
+    points = [ imgui.Vec2(a.x, a.y) for a in points ]
+
+    # Draw the curve
+    if is_bg:
+      draw_list.add_polyline(
+        points,
+        imgui.get_color_u32_rgba(0,0,0,1), # Colour
+        False, scale)
+    else:
+      u32Col = imgui.get_color_u32_rgba(col[0], col[1], col[2], col[3])
+
+      draw_list.add_polyline(
+        points,
+        u32Col,  # Colour
+        False, 0.1 * scale)
+      
+      draw_list.add_line(
+        marker_start.x, marker_start.y,
+        marker_end.x, marker_end.y,
+        u32Col,  # Colour
+        0.1 * scale)
+
+      draw_list.add_line(
+        end_marker_start.x, end_marker_start.y,
+        end_marker_end.x,   end_marker_end.y,
+        u32Col,  # Colour
+        0.1 * scale)
+
+class BoundingBox():
+  def __init__(self, min = Vector2.largest(), max = Vector2.smallest()):
+    self.min = min
+    self.max = max
+
+  def contains(self, point):
+    clamped = point.max(self.min).min(self.max)
+    return clamped.equals(point)
+
+  def grow(self, point):
+    self.max = point.max(self.max)
+    self.min = point.min(self.min)
+
+  def center(self):
+    return (self.max.add(self.min)).scale(0.5)
+
+  def size(self):
+    return self.max.sub(self.min)
+
+  def longest_edge(self):
+    return max(self.size().x, self.size().y)
+    
+
+class TrackMapWindow(Window):
+  def __init__(self, ui, x, y, width, height):
+    super(TrackMapWindow, self).__init__(ui, x, y, width, height, "Track Map")
+    self.track_details = [
+      [STRAIGHT, 2],
+      [RTURN,    2],
+      [STRAIGHT, 2],
+      [RTURN,    2],
+      [STRAIGHT, 2],
+      [RTURN,    2],
+      [STRAIGHT, 2],
+      [RTURN,    2]
+    ]
+
+    self.lap_times = [
+      10.0,
+      9.0
+    ]
+
+    self.hovered_track  = -1
+    self.selected_track = -1
+
+  def on_draw(self):
+    # Get the draw list so we can do some custom drawing
+    pos    = imgui.get_window_position()
+    size   = imgui.get_window_size()
+    center = imgui.Vec2(pos.x + size.x / 2, pos.y + size.y / 2)
+
+    imgui.begin_child('map-preview', 0, size.y * 0.7)
+
+    track_pos    = imgui.get_window_position()
+    track_size   = imgui.get_window_size()
+    track_center = imgui.Vec2(track_pos.x + track_size.x / 2, track_pos.y + track_size.y / 2)
+
+    self.draw_track_map(
+      imgui.get_window_draw_list(),
+      self.track_details,
+      Vector2(track_center.x, track_center.y),
+      min(track_size.x * 0.8, track_size.y * 0.8)
+    )
+
+    imgui.end_child()
+
+    imgui.new_line()
+    
+    imgui.separator()
+    imgui.columns(2)
+    imgui.text('Lap Times')
+    imgui.begin_child('lap-times', 0.5, 0, True)
+    counter = 1
+    imgui.columns(2)
+    for time in self.lap_times:
+      imgui.text(str(counter))
+      imgui.next_column()
+      imgui.text(str(time) + 's')
+      imgui.next_column()
+      counter = counter + 1
+    imgui.columns(1)
+    imgui.end_child()
+
+    imgui.next_column()
+    
+    imgui.text('Track Details')
+    imgui.begin_child('track-segments', 0.5, 0, True)
+    imgui.columns(2)
+
+    self.hovered_track = -1
+    for i, detail in enumerate(self.track_details):
+      imgui.push_id(str(i))
+      start_pos = imgui.get_cursor_screen_pos()
+
+      if imgui.selectable(str(i + 1))[1]:
+        self.selected_track = i if self.selected_track != i else -1
+      hovered = imgui.is_item_hovered()
+
+      imgui.next_column()
+
+      _, detail[0] = imgui.listbox(TRACK_TYPE_NAME[detail[0]], detail[0], TRACK_TYPE_NAME, 1)
+      _, detail[1] = imgui.input_float('size', detail[1])
+      if imgui.button('Remove'):
+        self.track_details.remove(detail)
+      end_pos = imgui.get_cursor_screen_pos()
+      max_x   = imgui.get_window_position().x + imgui.get_window_size().x
+      imgui.pop_id()
+
+      hovered = imgui.is_mouse_hovering_rect(start_pos.x, start_pos.y, max_x, end_pos.y)
+      imgui.next_column()
+      hovered |= imgui.is_mouse_hovering_rect(start_pos.x, start_pos.y, max_x, end_pos.y)
+      if hovered:
+        self.hovered_track = i
+      imgui.separator()
+
+    if imgui.button('Add'):
+      self.track_details.append([ STRAIGHT, 1 ])
+    imgui.columns(1)
+    imgui.end_child()
+
+  def draw_track_map(self, draw_list, map_sections, map_center, map_size):
+    # Determine points for the map
+    segments   = []           
+    last_point = Vector2(0, 0) # Start at 0,0 (we will recenter later)
+    dir        = Vector2(1, 0) # Start facing right
+
+    map_bounds = BoundingBox()
+    map_bounds.grow(last_point)
+
+    for i, section in enumerate(map_sections):
+      if section[0] == STRAIGHT:
+
+        next_point = last_point.add(dir.scale(section[1]))
+
+        segments.append(Segment(SEGMENT_LINE, {
+          'start': last_point,
+          'end':   next_point,
+        }))
+
+      elif section[0] == RTURN:
+        dir = dir.rotate(90)
+        next_point = last_point.add(dir)
+        center     = last_point.add(dir.scale(section[1]))
+        next_point = center.add(last_point.sub(center).rotate(90))
+        segments.append(Segment(SEGMENT_ARC, {
+          'start':  last_point,
+          'center': center,
+          'arc':    90
+        }))
+
+      elif section[0] == LTURN:
+        dir        = dir.rotate(-90)
+        center     = last_point.add(dir.scale(section[1]))
+        next_point = center.add(last_point.sub(center).rotate(-90))
+
+        segments.append(Segment(SEGMENT_ARC, {
+          'start':  last_point,
+          'center': center,
+          'arc':    -90
+        }))
+
+      else:
+        continue
+      
+      if i == self.hovered_track:
+        segments[-1].params['colour'] = (0, 0, 1, 1)
+      if i == self.selected_track:
+        segments[-1].params['colour'] = (0, 1, 0, 1)
+
+      last_point = next_point
+      map_bounds.grow(next_point)
+
+    # Calculate an offset and scale for the sections so we draw the map at
+    # the request position and scale
+    draw_offset = map_center.sub(map_bounds.center())
+    draw_scale  = map_size / map_bounds.longest_edge()
+
+    # Draw the line background first
+    for seg in segments: seg.draw(draw_list, map_bounds.center(), draw_offset, draw_scale, True)
+    # Draw the actual line
+    for seg in segments: seg.draw(draw_list, map_bounds.center(), draw_offset, draw_scale, False)
 
 
 class GUI:
@@ -208,52 +565,65 @@ class GUI:
     self.setup_style()
 
   def update(self):
-    self.command_wnd.x      = self.app.window.width() * 1 / 4
-    self.command_wnd.width  = self.app.window.width() * 3 / 8
-    self.command_wnd.height = self.app.window.height() - self.console_height
+    self.var_wnd.x      = self.app.window.width() * 6 / 10
+    self.var_wnd.width  = self.app.window.width() * 4 / 10
+    self.var_wnd.height = (self.app.window.height() - self.console_height) / 2
 
-    self.var_wnd.x      = self.app.window.width() * 5 / 8
-    self.var_wnd.width  = self.app.window.width() * 3 / 8
-    self.var_wnd.height = self.app.window.height() - self.console_height
+    self.command_wnd.x      = self.var_wnd.x
+    self.command_wnd.y      = self.var_wnd.height
+    self.command_wnd.width  = self.app.window.width() * 4 / 10
+    self.command_wnd.height = self.var_wnd.height
 
-    self.console.x      = self.app.window.width() / 4
+    self.console.x      = self.app.window.width() / 5
     self.console.y      = self.app.window.height() - self.console_height
-    self.console.width  = self.app.window.width() * 3 / 4
+    self.console.width  = self.app.window.width() * 8 / 10
     self.console.height = self.console_height
 
-    self.conn.width  = self.app.window.width() / 4
+    self.conn.width  = self.app.window.width() / 5
     self.conn.height = self.app.window.height()
+
+    self.map.x      = self.app.window.width() * 1 / 5
+    self.map.y      = 0
+    self.map.width  = self.app.window.width() * 4 / 10
+    self.map.height = self.app.window.height() - self.console_height
 
   def draw(self):
     self.command_wnd.draw()
     self.var_wnd.draw()
     self.console.draw()
     self.conn.draw()
+    self.map.draw()
 
   def create_windows(self):
     self.console_height = 250
     self.command_wnd = CommandWindow(
       self,
-      self.app.window.width() * 1 / 4, 0,
-      self.app.window.width() * 3 / 8, self.app.window.height() - self.console_height
+      self.app.window.width() * 1 / 5, 0,
+      self.app.window.width() * 4 / 10, self.app.window.height() - self.console_height
     )
 
     self.var_wnd = VariableWindow(
       self,
       self.app.window.width() * 5 / 8, 0,
-      self.app.window.width() * 3 / 8, self.app.window.height() - self.console_height
+      self.app.window.width() * 4 / 10, self.app.window.height() - self.console_height
     )
 
     self.console = ConsoleWindow(
       self,
-      self.app.window.width() / 4, self.app.window.height() - self.console_height,
-      self.app.window.width() * 3 / 4, self.console_height
+      self.app.window.width() / 5, self.app.window.height() - self.console_height,
+      self.app.window.width() * 4 / 5, self.console_height
     )
 
     self.conn = ConnectionWindow(
       self,
       0, 0,
-      self.app.window.width() / 4, self.app.window.height()
+      self.app.window.width() / 5, self.app.window.height()
+    )
+
+    self.map = TrackMapWindow(
+      self,
+      self.app.window.width() * 1 / 5, 0,
+      self.app.window.width() * 4 / 10, self.app.window.height() - self.console_height
     )
     
     wnd_flags = imgui.WINDOW_NO_RESIZE|imgui.WINDOW_NO_MOVE|imgui.WINDOW_NO_SCROLLBAR|imgui.WINDOW_NO_COLLAPSE
@@ -261,6 +631,7 @@ class GUI:
     self.var_wnd.add_flags    (wnd_flags)
     self.console.add_flags    (wnd_flags)
     self.conn.add_flags       (wnd_flags)
+    self.map.add_flags        (wnd_flags)
 
   def setup_style(self):
     is_3d = True

@@ -1,4 +1,8 @@
+wheel
 bleak
 asyncio
+PyOpenGL
 imgui[glfw]
+imgui[sdl2]
 pysdl2
+vector2
