@@ -33,6 +33,9 @@ class Vector2:
   def dot(self, vec):
     return self.x * vec.x + self.y * vec.y
 
+  def abs(self):
+    return Vector2(abs(self.x), abs(self.y))
+
   def cross(self, vec):
     return self.x * self.y - self.y * vec.x
 
@@ -300,10 +303,19 @@ class Segment:
     elif (self.type == SEGMENT_ARC):
       self.draw_arc(draw_list, origin, offset, scale, is_bg)
 
+  def start(self): return self.params['start']
+  def end(self):   return self.params['end']
+
   def draw_line(self, draw_list, origin, offset, scale, is_bg):
     start = self.params['start']
     end   = self.params['end']
     col   = self.params['colour'] if 'colour' in self.params else (1, 1, 1, 1)
+    marker_side = self.params['marker_side']
+
+    normal = end.sub(start).normalize().rotate(90)
+
+    marker_start = start.sub(normal.scale(marker_side * 0.15)).sub(origin).scale(scale).add(offset)
+    marker_end   = start.sub(normal.scale(marker_side * 0.4)).sub(origin).scale(scale).add(offset)
 
     start = start.sub(origin).scale(scale).add(offset)
     end   = end.sub(origin).scale(scale).add(offset)
@@ -311,7 +323,15 @@ class Segment:
     if is_bg:
       draw_list.add_line(start.x, start.y, end.x, end.y, imgui.get_color_u32_rgba(0, 0, 0, 1), scale)
     else:
-      draw_list.add_line(start.x, start.y, end.x, end.y, imgui.get_color_u32_rgba(col[0], col[1], col[2], col[3]), 0.1 * scale)
+      col_u32 = imgui.get_color_u32_rgba(col[0], col[1], col[2], col[3])
+
+      draw_list.add_line(
+        marker_start.x, marker_start.y,
+        marker_end.x,   marker_end.y,
+        col_u32,  # Colour
+        0.1 * scale)
+
+      draw_list.add_line(start.x, start.y, end.x, end.y, col_u32, 0.1 * scale)
 
   def draw_arc(self, draw_list, origin, offset, scale, is_bg):
     start     = self.params['start']  # The start point of the arg
@@ -329,8 +349,10 @@ class Segment:
     # We will rotate this vector to get each position.
     rot_arm = start.sub(center)
 
-    marker_start = start.sub(rot_arm.normalize().scale(0.1)).sub(origin).scale(scale).add(offset)
-    marker_end   = start.sub(rot_arm.normalize().scale(0.2)).sub(origin).scale(scale).add(offset)
+    marker_sign = 1 if arc_angle > 0 else -1
+
+    marker_start = start.sub(rot_arm.normalize().scale(0.15)).sub(origin).scale(scale).add(offset)
+    marker_end   = start.sub(rot_arm.normalize().scale(0.4)).sub(origin).scale(scale).add(offset)
 
     # Calculate points along the segment
     points  = [ start.sub(origin).scale(scale).add(offset) ]
@@ -342,9 +364,6 @@ class Segment:
     end_tangent = rot_arm.rotate(90).normalize().scale(sign(arc_angle))
     points.insert(0, points[0].sub(start_tangent))
     points.append(points[-1].add(end_tangent))
-
-    end_marker_start = points[-1].sub(rot_arm.normalize().scale(0.1 * scale))
-    end_marker_end   = points[-1].sub(rot_arm.normalize().scale(0.2 * scale))
 
     # Convert to imgui vec2's      
     points = [ imgui.Vec2(a.x, a.y) for a in points ]
@@ -366,12 +385,6 @@ class Segment:
       draw_list.add_line(
         marker_start.x, marker_start.y,
         marker_end.x, marker_end.y,
-        u32Col,  # Colour
-        0.1 * scale)
-
-      draw_list.add_line(
-        end_marker_start.x, end_marker_start.y,
-        end_marker_end.x,   end_marker_end.y,
         u32Col,  # Colour
         0.1 * scale)
 
@@ -419,6 +432,7 @@ class TrackMapWindow(Window):
 
     self.hovered_track  = -1
     self.selected_track = -1
+    self.full_loop = False;
 
   def on_draw(self):
     # Get the draw list so we can do some custom drawing
@@ -431,6 +445,8 @@ class TrackMapWindow(Window):
     track_pos    = imgui.get_window_position()
     track_size   = imgui.get_window_size()
     track_center = imgui.Vec2(track_pos.x + track_size.x / 2, track_pos.y + track_size.y / 2)
+
+    _, self.full_loop = imgui.checkbox('Complete Loop',    self.full_loop)
 
     self.draw_track_map(
       imgui.get_window_draw_list(),
@@ -504,7 +520,11 @@ class TrackMapWindow(Window):
     map_bounds = BoundingBox()
     map_bounds.grow(last_point)
 
+    last_type = -1
     for i, section in enumerate(map_sections):
+      if section[1] == 0:
+        continue
+
       if section[0] == STRAIGHT:
 
         next_point = last_point.add(dir.scale(section[1]))
@@ -512,6 +532,7 @@ class TrackMapWindow(Window):
         segments.append(Segment(SEGMENT_LINE, {
           'start': last_point,
           'end':   next_point,
+          'marker_side': -1 if last_type == RTURN else 1 if last_type == LTURN else 0
         }))
 
       elif section[0] == RTURN:
@@ -543,9 +564,32 @@ class TrackMapWindow(Window):
         segments[-1].params['colour'] = (0, 0, 1, 1)
       if i == self.selected_track:
         segments[-1].params['colour'] = (0, 1, 0, 1)
-
+      last_type  = section[0]
       last_point = next_point
       map_bounds.grow(next_point)
+
+    if len(segments) > 0:
+      segments[0].params['marker_side'] = -1 if last_type == RTURN else 1 if last_type == LTURN else 0
+
+    # We need to adjust the segments so that 'last_point' == 0.
+
+    if self.full_loop:
+      candidates = [  ]
+      total_weights = Vector2(0, 0)
+
+      if last_point.mag() > 0:
+        for segment in segments:
+          if segment.type == SEGMENT_LINE:
+            diff = segment.end().sub(segment.start())
+            candidates.append((diff, segment))
+            total_weights = total_weights.add(diff.abs())
+
+      if total_weights.mag() > 0:
+        for candidate in candidates:
+          diff    = candidate[0]
+          segment = candidate[1]
+          adjustment = last_point.mul(diff).div(total_weights)
+          segment.params['end'] = segment.params['end'].add(adjustment)
 
     # Calculate an offset and scale for the sections so we draw the map at
     # the request position and scale
@@ -553,9 +597,11 @@ class TrackMapWindow(Window):
     draw_scale  = map_size / map_bounds.longest_edge()
 
     # Draw the line background first
-    for seg in segments: seg.draw(draw_list, map_bounds.center(), draw_offset, draw_scale, True)
+    for seg in segments:
+      seg.draw(draw_list, map_bounds.center(), draw_offset, draw_scale, True)
     # Draw the actual line
-    for seg in segments: seg.draw(draw_list, map_bounds.center(), draw_offset, draw_scale, False)
+    for seg in segments:
+      seg.draw(draw_list, map_bounds.center(), draw_offset, draw_scale, False)
 
 
 class GUI:
