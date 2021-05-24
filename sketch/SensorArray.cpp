@@ -1,5 +1,7 @@
 #include "SensorArray.h"
 
+bool g_calibrateSensors = false;
+
 void SensorArray::Sensor::setPin(int pin) {
   m_pin = pin;
   pinMode(m_pin, INPUT);
@@ -8,7 +10,7 @@ void SensorArray::Sensor::setPin(int pin) {
 int SensorArray::Sensor::read() {
   m_rawValue = analogRead(m_pin);
 
-  if (m_calibrating)
+  if (g_calibrateSensors)
   { // Update the range of sensor values
     m_min = min(m_min, m_rawValue);
     m_max = max(m_max, m_rawValue);
@@ -24,12 +26,6 @@ int SensorArray::Sensor::read() {
 void SensorArray::Sensor::resetCalibration() {
   m_min = 1024;
   m_max = 0;
-}
-
-void SensorArray::Sensor::setCalibrating(bool calibrating) {
-  if (!m_calibrating && calibrating)
-    resetCalibration();
-  m_calibrating = calibrating;
 }
 
 int SensorArray::Sensor::getMin()      const { return m_min; }
@@ -49,6 +45,9 @@ bool SensorArray::setup(SensorConfig conf) {
   for (int i = 0; i < 8; i++)
     m_sensors[i].setPin(m_config.recvPins[i]);
 
+  m_markers[MS_Left].setPin(m_config.leftMarkerPin);
+  m_markers[MS_Right].setPin(m_config.rightMarkerPin);
+
   m_averageSampleCount = 1;
 }
 
@@ -59,26 +58,24 @@ void SensorArray::update() {
 
 void SensorArray::updateLinePosition() {
   // more debugging serial prints
-  // DEBUG_PRINT("     ir receiver values:");
-  // for (Sensor &sensor : m_sensors) {
-  //   DEBUG_PRINT("  ");
-  //   DEBUG_PRINT(sensor.getValue());
-  // }
+  DEBUG_PRINT("ir array: [ ");
+  for (Sensor &sensor : m_sensors) {
+    DEBUG_PRINT(sensor.getValue());
+    DEBUG_PRINT(" ");
+  }
+  DEBUG_PRINT("] ");
   
-  // DEBUG_PRINT("    Sensor Avg: ");
-  // DEBUG_PRINT(m_irAvg);
-  // DEBUG_PRINT("    Sensor Std-Dev: ");
-  // DEBUG_PRINT(m_irStdDev);
-
+  debugPrint("markers", m_markers[0].getValue(), m_markers[1].getValue());
+  
   // If a horizontal line is detected, keep doing what ya doing
   if (horizontalLineDetected()) {
-    DEBUG_PRINT("    Horizontal Detected");
+    debugPrint("Horizontal Detected");
     return;
   }
   
   // If no line is detected, keep doing what ya doing
   if (!lineDetected()) {
-    DEBUG_PRINT("    No Line Detected");
+    debugPrint("No Line Detected");
     return;
   }
 
@@ -104,6 +101,9 @@ void SensorArray::updateSensorValues() {
   // Read in all the sensor values
   for (Sensor &sensor : m_sensors)
     sensor.read();
+
+  for (Sensor &marker : m_markers)
+    marker.read();
 
   // Calculate the average value for all sensors.
   // Used to differentiate between no-line detected and a horizontal line detected.
@@ -133,16 +133,17 @@ void SensorArray::updateSensorValues() {
   }
   m_lastUpdateMilli = currentTime; // Store the current time (will be used in the call to this function).
   
-  DEBUG_PRINT("    Detected Time: ");
-  DEBUG_PRINT(m_lineDetectedMilli);
-  DEBUG_PRINT("    Missing Time: ");
-  DEBUG_PRINT(m_lineMissingMilli);
+  debugPrint("Detected Time", m_lineDetectedMilli);
+  debugPrint("Missing Time", m_lineMissingMilli);
 }
 
-double SensorArray::getLinePos()    { return m_averageLinePosition / (IR_SENSOR_COUNT - 1); }
-double SensorArray::getLinePosRaw() { return m_linePosition / (IR_SENSOR_COUNT - 1); }
+bool SensorArray::isMarkerDetected(MarkerSensor sensorID)
+{
+  return m_markers[sensorID].getValue() < 512;
+}
 
-void SensorArray::setAverageSampleCount(int sampleCount) { m_averageSampleCount = sampleCount; }
+double SensorArray::getLinePos()    { return m_linePosition / (IR_SENSOR_COUNT - 1); }
+
 bool SensorArray::lineDetected() { return m_irStdDev > m_config.detectThreshold; }
 bool SensorArray::horizontalLineDetected() { return !lineDetected() && m_irAvg < 100; }
 

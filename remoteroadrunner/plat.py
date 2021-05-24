@@ -37,7 +37,6 @@ class Window:
     SDL_GL_MakeCurrent(self.sdl_window, self.gl_context)
     if SDL_GL_SetSwapInterval(1) < 0:
       print("Warning: Unable to set VSync! SDL Error: " + SDL_GetError().decode("utf-8"))
-      exit(1)
 
   def title(self):
     pass
