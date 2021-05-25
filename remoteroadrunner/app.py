@@ -100,7 +100,6 @@ class App:
     self.register_console_commands()
 
   def __del__(self):
-    self.renderer.shutdown()
     SDL_GL_DeleteContext(self.gl_context)
     SDL_DestroyWindow(self.window)
     SDL_Quit()

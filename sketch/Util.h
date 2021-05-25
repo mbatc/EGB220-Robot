@@ -7,7 +7,7 @@
 #include "stdint.h"
 
 // placement new
-void * operator new (size_t size, void * ptr);
+void * operator new (unsigned int, void * ptr);
 
 #define ArraySize(arr) (sizeof(arr) / sizeof(*arr))
 
@@ -117,7 +117,13 @@ void debugPrint(char const *name, Args&&... args)
   DEBUG_PRINT(name);
   DEBUG_PRINT(": [");
   __printArgs(util::forward<Args>(args)...);
-  DEBUG_PRINT("] ");
+  DEBUG_PRINT(" ] ");
+}
+
+inline void debugPrint(char const *name)
+{
+  DEBUG_PRINT(name);  
+  DEBUG_PRINT(" ");
 }
 
 #endif
