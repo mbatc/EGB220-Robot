@@ -13,16 +13,26 @@ class ColourSensor
 public:
   ColourSensor();
 
-  void SetTarget(Colour col);
+  void update();
 
-  bool IsDetected() const;
+  void setTarget(Colour col);
 
-  Colour GetTarget() const;
+  bool isDetected() const;
+  bool isGreen() const;
+  bool isRed() const;
+  bool isWhite() const;
+  bool isBlack() const;
 
-private:
-  Colour m_targetCol;
+  Colour getTarget() const;
+
+  int getIntensity();
   
-  // TODO: add data needed for colour sensor
+private:
+  int m_intensity;
+
+  int m_outPin = -1;
+  int m_signal2 = -1;
+  int m_signal3 = -1;
 };
 
 #endif

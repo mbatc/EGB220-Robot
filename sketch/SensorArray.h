@@ -13,7 +13,6 @@ extern bool g_calibrateSensors;
 // Struct that contains configuration options for the sensor array
 struct SensorConfig
 {
-  int emitPin;
   int leftMarkerPin;
   int rightMarkerPin;
   int recvPins[IR_SENSOR_COUNT];
@@ -86,6 +85,8 @@ public:
   // This function reads the sensor and calculates the Derived IR sensor values below.
   // Should be called once per loop().
   void update();
+
+  void resetCalibration();
   
 protected:
   void updateSensorValues();

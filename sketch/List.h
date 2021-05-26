@@ -1,3 +1,6 @@
+#ifndef List_h__
+#define List_h__
+
 #include "Util.h"
 
 #define INVALID_INDEX UINT32_MAX
@@ -151,3 +154,5 @@ private:
   size_t m_size = 0;     // The number of items in the list
   size_t m_capacity = 0; // The number of items that can be added until the array needs to be reallocated
 };
+
+#endif

@@ -36,11 +36,7 @@ int SensorArray::Sensor::getValueRaw() const { return m_rawValue; }
 bool SensorArray::setup(SensorConfig conf) {
   // Store the config settings
   m_config = conf;
-  
-  // Setting pins as inputs or outputs depending on what they are
-  pinMode(m_config.emitPin, OUTPUT);
-  digitalWrite(m_config.emitPin, HIGH);
-  
+    
   // Setting IR receivers as inputs
   for (int i = 0; i < 8; i++)
     m_sensors[i].setPin(m_config.recvPins[i]);
@@ -140,6 +136,14 @@ void SensorArray::updateSensorValues() {
 bool SensorArray::isMarkerDetected(MarkerSensor sensorID)
 {
   return m_markers[sensorID].getValue() < 512;
+}
+
+void SensorArray::resetCalibration()
+{
+  for (Sensor &sensor : m_sensors)
+    sensor.resetCalibration();
+  for (Sensor &sensor : m_markers)
+    sensor.resetCalibration();
 }
 
 double SensorArray::getLinePos()    { return m_linePosition / (IR_SENSOR_COUNT - 1); }

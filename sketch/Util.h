@@ -7,7 +7,7 @@
 #include "stdint.h"
 
 // placement new
-void * operator new (size_t size, void * ptr);
+void * operator new (unsigned int, void * ptr);
 
 #define ArraySize(arr) (sizeof(arr) / sizeof(*arr))
 

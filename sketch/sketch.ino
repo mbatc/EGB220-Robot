@@ -14,20 +14,19 @@ PIDController pidController;
 ColourSensor  colourSensor;
 TrackMap      trackMap;
 
+bool   isColourMarker = false;
+Colour nextColour     = Col_Green;
+
 const int motors_R     = 3;          // Right motor pin
 const int motors_L     = 11;         // Left motor pin
 const int motorsDir[2] = { 17, 60 }; // Motor direction pins **** not pin 60**** just havent been bothered to find it yet
 
 bool   driving        = false;    // Is the motor currently driving
+int    fastSpeed      = 170;
+int    slowSpeed      = 80;
+int    curMotorSpeed  = slowSpeed;
 
-int    maxMotorSpeed  = 170; // Max speed of the motors
-int    minMotorSpeed  = 0;   // Max speed of the motors
-int    curMotorSpeed  = maxMotorSpeed;
 int    acceleration   = 5;
-int    slowSpeed      = maxMotorSpeed / 2;
-
-double turnAmount     = 0;   // Current amount the robot is turning. Contains a value between -1 and 1 (-1=right, 1=left)
-
 double kp = 1;
 double ki = 0;
 double kd = 5;
@@ -36,10 +35,17 @@ double PIDScaleFactor = 1; // this value adjusts how sensitive the PID correctio
 double avgSpeedDiff = 0;
 double avgSmoothing = 2;
 int speedDiffSamples = 5;
-double changeThreshold = 0.05;
 double speedUpThreshold = 0.2;
-
 float correction = 0;
+
+void startCalibrate() {
+  sensorArray.resetCalibration();
+  g_calibrateSensors = true;
+}
+
+void endCalibrate() {
+  g_calibrateSensors = false;
+}
 
 // Expose variables to the command interface
 Commands::VarDef cmdVars[] = {
@@ -47,17 +53,13 @@ Commands::VarDef cmdVars[] = {
   { "ki", ki },
   { "kd", kd },
   { "PIDscaleFactor", PIDScaleFactor },
-  { "maxMotorSpeed",  maxMotorSpeed  },
-  { "minMotorSpeed",  minMotorSpeed  },
-  { "changeThreshold", changeThreshold },
-  { "acceleration", acceleration },
-  { "slowSpeed", slowSpeed },
+  { "fastSpeed",  fastSpeed },
+  { "slowSpeed",  slowSpeed },
   { "speedUpThreshold", speedUpThreshold }
 };
 
 // Expose functions to the command interface
 Commands::CmdDef cmdList[] = {
-  { "nextIteration", nextIteration }
 };
 
 // Create the command set
@@ -71,12 +73,9 @@ void setup() {
 
   // Configuration for the IR sensor array
   SensorConfig sensorConf = {
-    // IR Emitter Pin
-    .emitPin = 14,
-
     // Marker sensor pins
-    .leftMarkerPin = 22,
-    .rightMarkerPin = 23,
+    .leftMarkerPin = 23,
+    .rightMarkerPin = 22,
     
     // IR Sensor Pins
     // .recvPins = { 15, 2, 1, 0, 8, 7, 29, 6 },
@@ -112,31 +111,66 @@ void applyMotorSpeed(int leftMotor, int rightMotor) {
 int motorSpeed_L = 0; // Speed of the left motor
 int motorSpeed_R = 0; // Speed of the right motor
 
+long segmentMotorDiff = 0;
+int  segmentLoops     = 0;
+
+void onStartDriving();
+void onStopDriving();
+
+void onLapStart();
+void onLapEnd();
+
+void onLineDetected();
+void onMarkerDetected(MarkerSensor sensorID);
+void onColourDetected(Colour colour);
+
+void driveSlow()
+{  
+  curMotorSpeed = slowSpeed;
+}
+
+void driveFast()
+{
+  curMotorSpeed = fastSpeed;
+}
+
+void onMarkerDetected(MarkerSensor sensorID);
+void onMarkerDetectEnd(MarkerSensor sensorID);
+void onMarkerDetectStart(MarkerSensor sensorID);
+
+void updateMarkerDetected(MarkerSensor sensorID)
+{
+  static bool lastMarkerDetected[MS_Count] = { 0 };
+  bool &lastDetected = lastMarkerDetected[sensorID];
+  bool detected = sensorArray.isMarkerDetected(sensorID);
+  if (detected)
+  {
+    if (!lastDetected)
+      onMarkerDetectStart(sensorID);
+    onMarkerDetected(sensorID);
+  }
+  else
+  {
+    if (lastDetected)
+      onMarkerDetectEnd(sensorID);
+  }
+
+  lastDetected = detected;
+}
+
 // Funtion to drive the robot, takes a speed value between 0 and 255 (0% and 100%) as the top speed
 // both motors run at MotorSpeed until it sees a corner, then one wheel is ramped down in speed based on how sharp the corner is. this can be edited to make one wheel slow and the other speed up if need be
 // motorLowestSpeed set the lowest speed the motors are allowed to go
 void drive() {
    // Get the line position calculated by the sensor array
   double linePos = sensorArray.getLinePos();
-  
-  debugPrint("D Factor", pidController.getRateOfChange());
 
-  if (sensorArray.isMarkerDetected(MS_Left)) {
-    onMarkerDetected(MS_Left);
-  }
-  else if (sensorArray.isMarkerDetected(MS_Right)) {
-    onMarkerDetected(MS_Right);
-  }
-
-  if (abs(pidController.getRateOfChange()) > changeThreshold) {
-    curMotorSpeed = slowSpeed;
-  }
+  updateMarkerDetected(MS_Left);
+  updateMarkerDetected(MS_Right);
 
   // Update the PID controller if a line is detected
   if (sensorArray.lineDetected()) {
-    correction = pidController.addSample(linePos, millis()) * (curMotorSpeed - minMotorSpeed) * PIDScaleFactor;
-
-    pidTrainer.update();
+    correction = pidController.addSample(linePos, millis()) * curMotorSpeed * PIDScaleFactor;
 
     if (correction > 0){
       motorSpeed_R = curMotorSpeed - correction;
@@ -148,22 +182,19 @@ void drive() {
     }
           
     // Clamp calculated speeds between the min/max speeds given to the function
-    motorSpeed_R = min(maxMotorSpeed, max(minMotorSpeed, motorSpeed_R));
-    motorSpeed_L = min(maxMotorSpeed, max(minMotorSpeed, motorSpeed_L));
+    motorSpeed_R = min(curMotorSpeed, max(0, motorSpeed_R));
+    motorSpeed_L = min(curMotorSpeed, max(0, motorSpeed_L));
     
     // Calculate an exponential moving average for the correction value.
     expMovingAverage(&avgSpeedDiff, motorSpeed_L - motorSpeed_R, speedDiffSamples, avgSmoothing);
 
     float diffFactor = abs(avgSpeedDiff) / (float)curMotorSpeed;
     debugPrint("avg Diff", avgSpeedDiff);
-    if (diffFactor < speedUpThreshold) {
-      curMotorSpeed += acceleration;
-      curMotorSpeed = min(curMotorSpeed, maxMotorSpeed);
-    }
+    // if (diffFactor < speedUpThreshold) {
+    //  curMotorSpeed += acceleration;
+    //  curMotorSpeed = min(curMotorSpeed, maxMotorSpeed);
+    // }
   }
-  
-  debugPrint("motorSpeed", curMotorSpeed);
-  debugPrint("Correction", correction);
   
   debugPrint("LMS", motorSpeed_L);
   debugPrint("RMS", motorSpeed_R);
@@ -215,40 +246,46 @@ void loop() {
     }
   }
 
+  colourSensor.update();
+
+  if (colourSensor.isRed()) {
+    debugPrint("red");
+  }
+  else if (colourSensor.isGreen()) {
+    debugPrint("green");
+  }
+  else if (colourSensor.isBlack()) {
+    debugPrint("black");    
+  }
+  else if (colourSensor.isWhite()) {
+    debugPrint("white");
+  }
+
+  debugPrint("Intensity", colourSensor.getIntensity());
+
   // Print a new line on serial so it looks nice
   DEBUG_PRINTLN("");
 }
 
 // When we start driving we want to set reset the PID control system and set the colour sensor to the correct colour
 void onStartDriving() {
-  colourSensor.SetTarget(Col_Green);
+  
 }
 
 void onStopDriving() {
-
-}
-
-
-void onMarkerDetected(MarkerSensor sensorID) {
-  if (sensorID == MS_Right) {
-    if (colourSensor.IsDetected()) {
-      onColourDetected(colourSensor.GetTarget());
-    }
-  }
-
-  onEndSegment();
+  
 }
 
 void onColourDetected(Colour col) {
   switch (col)
   {
   case Col_Green:
-    onTrackStart();
-    colourSensor.SetTarget(Col_Red);
+    onLapStart();
+    colourSensor.setTarget(Col_Red);
     break;
   case Col_Red:
-    onTrackEnd();
-    colourSensor.SetTarget(Col_Green);
+    onLapEnd();
+    colourSensor.setTarget(Col_Green);
     break;
   }
 }
@@ -268,16 +305,35 @@ void startSegment() {
   segmentStartTime = millis();
 }
 
-void finishSegment() {
-  // Find the motor speed diff, (/2 so we can guarantee the result will fit in a int8)
-  int8_t motorDiff     = (segmentMotorDiff / segmentLoops) / 2;
-  unsigned long length = (millis() - segmentStartTime) / 50;
-  uint8_t length8      = uint8_t(min(length, 255));
+void onColourDetected(Colour col) {
+  if (col == Col_Red) {
+    driveSlow();
+  }
 
-  trackMap.addSection(segmentMotorDiff / segmentLoops, length);
-  
-  bt.write(0x0F);
-  bt.write(uint8_t(128 + motorDiff)); // re-interpret as a uint8_t
-  bt.write(length8);
-  bt.write('\0');
+  if (col == Col_Green) {
+    driveFast();
+  }
+}
+
+void onMarkerDetected(MarkerSensor sensorID)
+{
+  if (sensorID == MS_Left && !isColourMarker) {
+    if (colourSensor.isDetected(nextColour) {
+      onColourDetected(nextColour);
+      isColourMarker = true;
+    }
+  }
+
+  if (sensorID == MS_Right)
+}
+
+static bool colourDetected = false;
+
+void onMarkerDetectEnd(MarkerSensor sensorID)
+{
+  isColourMarker = false;   
+}
+
+void onMarkerDetectStart(MarkerSensor sensorID)
+{ 
 }
