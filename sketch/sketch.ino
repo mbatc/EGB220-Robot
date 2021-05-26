@@ -27,9 +27,9 @@ int    slowSpeed      = 80;
 int    curMotorSpeed  = slowSpeed;
 
 int    acceleration   = 5;
-double kp = 1;
+double kp = 2.5;
 double ki = 0;
-double kd = 5;
+double kd = 75;
 double PIDScaleFactor = 1; // this value adjusts how sensitive the PID correction is on the turning
 
 double avgSpeedDiff = 0;
@@ -38,13 +38,21 @@ int speedDiffSamples = 5;
 double speedUpThreshold = 0.2;
 float correction = 0;
 
-void startCalibrate() {
+void startCalibration() {
   sensorArray.resetCalibration();
   g_calibrateSensors = true;
 }
 
-void endCalibrate() {
+void endCalibration() {
   g_calibrateSensors = false;
+}
+
+void startDriving() {
+  driving = true;
+}
+
+void stopDriving() {
+  driving = false;
 }
 
 // Expose variables to the command interface
@@ -60,6 +68,10 @@ Commands::VarDef cmdVars[] = {
 
 // Expose functions to the command interface
 Commands::CmdDef cmdList[] = {
+  { "startCalib", startCalibration },
+  { "endCalib", endCalibration },
+  { "drive", startDriving },
+  { "stop", stopDriving }
 };
 
 // Create the command set
@@ -168,6 +180,15 @@ void drive() {
   updateMarkerDetected(MS_Left);
   updateMarkerDetected(MS_Right);
 
+  
+  if (colourSensor.isRed()) {
+    driveSlow();
+  }
+
+  if (colourSensor.isGreen()) {
+    driveFast();
+  }
+
   // Update the PID controller if a line is detected
   if (sensorArray.lineDetected()) {
     correction = pidController.addSample(linePos, millis()) * curMotorSpeed * PIDScaleFactor;
@@ -215,7 +236,8 @@ void loop() {
 
   // Update sensor array and calculate line position
   sensorArray.update();
-
+  colourSensor.update();
+  
   if (driving) {
     pidController.setP(kp);
     pidController.setI(ki);
@@ -225,7 +247,7 @@ void loop() {
     drive();
 
     // Keep driving while the line has not been missing for more than 0.1 seconds
-    driving &= sensorArray.lineMissingTime() < 100;
+    // driving &= sensorArray.lineMissingTime() < 100;
     
     if (!driving) {
       onStopDriving();
@@ -239,29 +261,12 @@ void loop() {
     pidController.reset();
     
     // Don't start driving until the line has been detected for more than 1 second.
-    driving |= sensorArray.lineDetectedTime() > 1000;
+    // driving |= sensorArray.lineDetectedTime() > 1000;
 
     if (driving) {
       onStartDriving();
     }
   }
-
-  colourSensor.update();
-
-  if (colourSensor.isRed()) {
-    debugPrint("red");
-  }
-  else if (colourSensor.isGreen()) {
-    debugPrint("green");
-  }
-  else if (colourSensor.isBlack()) {
-    debugPrint("black");    
-  }
-  else if (colourSensor.isWhite()) {
-    debugPrint("white");
-  }
-
-  debugPrint("Intensity", colourSensor.getIntensity());
 
   // Print a new line on serial so it looks nice
   DEBUG_PRINTLN("");
@@ -274,20 +279,6 @@ void onStartDriving() {
 
 void onStopDriving() {
   
-}
-
-void onColourDetected(Colour col) {
-  switch (col)
-  {
-  case Col_Green:
-    onLapStart();
-    colourSensor.setTarget(Col_Red);
-    break;
-  case Col_Red:
-    onLapEnd();
-    colourSensor.setTarget(Col_Green);
-    break;
-  }
 }
 
 void onLapStart() {
@@ -306,25 +297,16 @@ void startSegment() {
 }
 
 void onColourDetected(Colour col) {
-  if (col == Col_Red) {
-    driveSlow();
-  }
-
-  if (col == Col_Green) {
-    driveFast();
-  }
 }
 
 void onMarkerDetected(MarkerSensor sensorID)
 {
   if (sensorID == MS_Left && !isColourMarker) {
-    if (colourSensor.isDetected(nextColour) {
+    if (colourSensor.isDetected(nextColour)) {
       onColourDetected(nextColour);
       isColourMarker = true;
     }
   }
-
-  if (sensorID == MS_Right)
 }
 
 static bool colourDetected = false;

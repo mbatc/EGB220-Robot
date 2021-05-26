@@ -32,6 +32,17 @@ int ColourSensor::getIntensity() {
   return b;
 }
 
+bool ColourSensor::isDetected(Colour col) const
+{
+  switch (col)
+  {
+    case Col_Red:   return isRed();
+    case Col_Green: return isGreen();
+  }
+  
+  return false;
+}
+
 void ColourSensor::update()
 {
   m_intensity = getIntensity();

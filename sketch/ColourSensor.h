@@ -15,15 +15,11 @@ public:
 
   void update();
 
-  void setTarget(Colour col);
-
-  bool isDetected() const;
+  bool isDetected(Colour col) const;
   bool isGreen() const;
   bool isRed() const;
   bool isWhite() const;
   bool isBlack() const;
-
-  Colour getTarget() const;
 
   int getIntensity();
   
