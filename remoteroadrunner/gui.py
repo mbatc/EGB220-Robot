@@ -434,7 +434,7 @@ class TrackMapWindow(Window):
 
     self.draw_track_map(
       imgui.get_window_draw_list(),
-      self.track_details,
+      self.app.context.get_track_details(),
       Vector2(track_center.x, track_center.y),
       min(track_size.x * 0.8, track_size.y * 0.8)
     )
@@ -449,7 +449,7 @@ class TrackMapWindow(Window):
     imgui.begin_child('lap-times', 0.5, 0, True)
     counter = 1
     imgui.columns(2)
-    for time in self.lap_times:
+    for time in self.app.context.get_lap_times():
       imgui.text(str(counter))
       imgui.next_column()
       imgui.text(str(time) + 's')

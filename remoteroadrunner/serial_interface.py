@@ -54,7 +54,7 @@ def response_is_lsvar(response):
 
 def parse_response_lscmd(response):
   if (not response_is_lscmd(response)):
-    return None
+    return []
     
   lines = response.split('\n')[1:]
   count = int(lines[0])
@@ -62,7 +62,7 @@ def parse_response_lscmd(response):
 
 def parse_response_lsvar(response):
   if (not response_is_lsvar(response)):
-    return None
+    return []
 
   lines = response.split('\n')[1:]
   count = int(lines[0])

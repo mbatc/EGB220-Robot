@@ -21,8 +21,7 @@ from datetime import datetime
 import bluetooth
 import plat
 import gui
-import task_queue
-from commands import CommandContext
+from commands import RoadRunnerContext
 
 class Device:
   def __init__(self, name, address, manufacturer):
@@ -75,7 +74,7 @@ class App:
   def __init__(self):
     imgui.create_context()
 
-    self.context  = CommandContext(self)
+    self.context  = RoadRunnerContext(self)
     self.running  = True
     self.window   = plat.Window(1280, 720, "Remote Road Runner")
     self.renderer = SDL2Renderer(self.window.sdl_window)
@@ -89,8 +88,6 @@ class App:
     self.console_log = []
     self.log_time    = True
 
-    self.task_queue = task_queue.TaskQueue()
-
     self.commands = AppCommands(self)
     self.devices  = { 
       # "64:69:4E:7B:5E:0B": Device("roadrunner", "64:69:4E:7B:5E:0B", "chief egb220 engineers")
@@ -100,9 +97,10 @@ class App:
     self.register_console_commands()
 
   def __del__(self):
-    self.renderer.shutdown()
-    SDL_GL_DeleteContext(self.gl_context)
-    SDL_DestroyWindow(self.window)
+    '''
+    Cleanup the application data on destroy
+    '''
+    if self.renderer   != None: self.renderer.shutdown()
     SDL_Quit()
 
   def set_log_time(self, enabled):
