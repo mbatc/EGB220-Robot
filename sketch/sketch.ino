@@ -21,22 +21,38 @@ const int motors_R     = 3;          // Right motor pin
 const int motors_L     = 11;         // Left motor pin
 const int motorsDir[2] = { 17, 60 }; // Motor direction pins **** not pin 60**** just havent been bothered to find it yet
 
-bool   driving        = false;    // Is the motor currently driving
-int    fastSpeed      = 170;
-int    slowSpeed      = 80;
-int    curMotorSpeed  = slowSpeed;
+bool   driving        = false; // Is the motor currently driving
+bool   allowDrive     = false; // Can the robot start driving
+int    straightSpeed  = 170;   // The speed for the straights
+int    cornerSpeed    = 80;    // The speed for the corners
+int    slowSpeed      = 40;    // The speed for the slow zone
+bool   inStraight     = false; // Is the robot in a straight track section
+bool   allowAccell    = false; // Can the robot accelerate
+int    curMotorSpeed  = cornerSpeed; // Setup the initial motor speed to be the cornering speed
+int    acceleration   = 10;    // How fast does the robot accelerate
+int    lapStopTime    = 4000;  // How many milliseconds to stop for between laps
+int    colDetectThreshold = 3; // How many consecutive times a colour should be detected before taking action
 
-int    acceleration   = 5;
-double kp = 2.5;
-double ki = 0;
-double kd = 75;
-double PIDScaleFactor = 1; // this value adjusts how sensitive the PID correction is on the turning
+// Control system parameters
+double kp = 2.5; // Proportional control
+double ki = 0;   // Integral control
+double kd = 75;  // Derivative control
+double PIDScaleFactor = 4; // this value adjusts how sensitive the PID correction is on the turning
 
-double avgSpeedDiff = 0;
-double avgSmoothing = 2;
-int speedDiffSamples = 5;
-double speedUpThreshold = 0.2;
+// Average wheel speed difference
+double avgSpeedDiff = 0;       // Average difference in motor speed
+double avgSmoothing = 2;       // Exponential average smoothing
+int speedDiffSamples = 10;     // Number of samples to include in the average 
+double speedUpThreshold = 0.2; // The percentage motor difference to threshold to consider the track straight.
+
+// Current control system correction value
 float correction = 0;
+
+// Current lap details
+bool lapStarted = false;
+unsigned long lapStartTime = 0;
+unsigned long lapFinishTime = 0;
+unsigned long stopTime = 0;
 
 void startCalibration() {
   sensorArray.resetCalibration();
@@ -48,30 +64,39 @@ void endCalibration() {
 }
 
 void startDriving() {
-  driving = true;
+  allowDrive = true;
 }
 
 void stopDriving() {
-  driving = false;
+  allowDrive = false;
+}
+
+bool sendTrackDetails = false;
+
+void sendTrack() {
+  sendTrackDetails = true;
 }
 
 // Expose variables to the command interface
 Commands::VarDef cmdVars[] = {
-  { "kp", kp },
-  { "ki", ki },
-  { "kd", kd },
-  { "PIDscaleFactor", PIDScaleFactor },
-  { "fastSpeed",  fastSpeed },
-  { "slowSpeed",  slowSpeed },
-  { "speedUpThreshold", speedUpThreshold }
+  { "P",        kp },
+  { "I",        ki },
+  { "D",        kd },
+  { "PIDsf",    PIDScaleFactor },
+  { "srtSpd",   straightSpeed },
+  { "crnSpd",   cornerSpeed },
+  { "slwSpd",   slowSpeed },
+  { "acl",      acceleration },
+  { "spdUpThr", speedUpThreshold }
 };
 
 // Expose functions to the command interface
 Commands::CmdDef cmdList[] = {
   { "startCalib", startCalibration },
-  { "endCalib", endCalibration },
-  { "drive", startDriving },
-  { "stop", stopDriving }
+  { "endCalib",   endCalibration },
+  { "drive",      startDriving },
+  { "stop",       stopDriving },
+  { "sendTrack",  sendTrack }
 };
 
 // Create the command set
@@ -112,6 +137,15 @@ void setup() {
   }
   
   pidController.setTarget(0.5);
+
+  trackMap.addSection(0, 10);
+  trackMap.addSection(30, 10);
+  trackMap.addSection(0, 10);
+  trackMap.addSection(30, 10);
+  trackMap.addSection(0, 10);
+  trackMap.addSection(30, 10);
+  trackMap.addSection(0, 10);
+  trackMap.addSection(30, 10);
 }
 
 // This function takes a speed for each motor and sets their pins.
@@ -126,29 +160,237 @@ int motorSpeed_R = 0; // Speed of the right motor
 long segmentMotorDiff = 0;
 int  segmentLoops     = 0;
 
-void onStartDriving();
-void onStopDriving();
+void onStartDriving()
+{
+  // Reset the stop time.
+  stopTime = 0;
+  
+  // Reset accum error when we loose the line.
+  pidController.reset();
 
-void onLapStart();
-void onLapEnd();
+  // When we start driving, assume we are moving towards
+  // the lap start marker
+  lapStarted = false;
+}
 
-void onLineDetected();
-void onMarkerDetected(MarkerSensor sensorID);
-void onColourDetected(Colour colour);
+void sendTrackInfo()
+{
+  bt.print("newtrack");
+  bt.update(); // Send data
+  for (size_t i = 0; i < trackMap.sectionCount(); ++i) {
+    bt.print("sec ");
+    bt.print((int)trackMap.sectionType(i));
+    bt.print(" ");
+    bt.print((int)trackMap.sectionLength(i));
+    bt.update(); // Send data
+  }
 
-void driveSlow()
-{  
+  bt.print("lap ");
+  bt.print((lapFinishTime - lapStartTime));
+  bt.update(); // Send data
+}
+
+void onLapStart()
+{
+  lapStartTime = millis();
+}
+
+void onLapEnd()
+{
+  lapFinishTime = millis();
+  stopTime = lapFinishTime + 500;  
+  allowDrive = false;
+}
+
+void onEnterSlowZone() {
+  inStraight    = true;
+  allowAccell   = false;
   curMotorSpeed = slowSpeed;
 }
 
-void driveFast()
-{
-  curMotorSpeed = fastSpeed;
+void onExitSlowZone() {
+  inStraight = true;
+  allowAccell = true;
+  curMotorSpeed = cornerSpeed;
 }
 
-void onMarkerDetected(MarkerSensor sensorID);
-void onMarkerDetectEnd(MarkerSensor sensorID);
-void onMarkerDetectStart(MarkerSensor sensorID);
+void onCornerSection() {
+  curMotorSpeed = cornerSpeed;
+  allowAccell = true;
+}
+
+void onStraightSection() {
+  allowAccell = true;  
+}
+
+void onLapBreak() {
+  // Stop motors
+  applyMotorSpeed(0, 0);
+  driving = false;
+
+  // Time when the lap break started.
+  // We need to delay at least 2 seconds here
+  unsigned long startTime = millis();
+
+  // Send the track info the the connected PC
+  sendTrackInfo();
+ 
+  // Calculate the remaining wait time.
+  long delayTime = lapStopTime - (millis() - startTime);
+
+  if (delayTime > 0)
+    delay(delayTime);
+}
+
+// Funtion to drive the robot, takes a speed value between 0 and 255 (0% and 100%) as the top speed
+// both motors run at MotorSpeed until it sees a corner, then one wheel is ramped down in speed based on how sharp the corner is. this can be edited to make one wheel slow and the other speed up if need be
+// motorLowestSpeed set the lowest speed the motors are allowed to go
+void drive() {
+   // Get the line position calculated by the sensor array
+  double linePos = sensorArray.getLinePos();
+
+  // Update the PID controller if a line is detected
+  if (sensorArray.lineDetected()) {
+    correction = pidController.addSample(linePos, millis()) * curMotorSpeed * PIDScaleFactor;
+
+    if (correction > 0){
+      motorSpeed_R = curMotorSpeed - correction;
+      motorSpeed_L = curMotorSpeed;
+    }
+    else if (correction < 0){
+      motorSpeed_L = curMotorSpeed + correction;
+      motorSpeed_R = curMotorSpeed;
+    }
+          
+    // Clamp calculated speeds between the min/max speeds given to the function
+    motorSpeed_R = min(curMotorSpeed, max(0, motorSpeed_R));
+    motorSpeed_L = min(curMotorSpeed, max(0, motorSpeed_L));
+    
+    // Calculate an exponential moving average for the motor speed difference.
+    expMovingAverage(&avgSpeedDiff, motorSpeed_L - motorSpeed_R, speedDiffSamples, avgSmoothing);
+    float diffFactor = abs(avgSpeedDiff) / (float)curMotorSpeed;
+    inStraight |= diffFactor < speedUpThreshold;
+
+    if (inStraight)
+      onStraightSection();
+    else
+      onCornerSection();
+  }
+
+  // Updating the motors with their new speeds
+  applyMotorSpeed(motorSpeed_L, motorSpeed_R);
+}
+
+void detectMarkers();
+
+void loop() {
+  // Update the bluetooth connection
+  // reads/writes data from the module and processes commands
+  bt.update();
+
+  if (sendTrackDetails) {
+    lapStartTime = 25;
+    lapFinishTime = 13000;
+    sendTrackInfo();
+    sendTrackDetails = false;
+  }
+
+  // Am having a weird issue where the left motor direction reverts to backwards even though I've set it to forwards
+  // Setting to forwards every loop seems to fix it for now though
+  pinMode(17, OUTPUT);
+  digitalWrite(17, LOW);
+
+  // Update sensor array and calculate line position
+  sensorArray.update();
+  colourSensor.update();
+  
+  if (stopTime != 0 && millis() >= stopTime) {
+    onLapBreak();
+  }
+
+  if (driving) {
+    // Apply control system parameters
+    pidController.setP(kp);
+    pidController.setI(ki);
+    pidController.setD(kd);
+
+    // Detect track markers
+    detectMarkers();
+
+    // Drive the robot
+    drive();
+
+    // Keep driving while the line has not been missing for more than 0.1 seconds
+    driving &= sensorArray.lineMissingTime() < 100 && allowDrive;
+  }
+  else {
+    // Make sure both motors are stopped
+    applyMotorSpeed(0, 0);
+    
+    // Don't start driving until the line has been detected for more than 1 second.
+    driving |= sensorArray.lineDetectedTime() > 1000 && allowDrive;
+
+    if (driving) {
+      onStartDriving();
+    }
+  }
+
+  // Print a new line on serial so it looks nice
+  // DEBUG_PRINTLN("");
+}
+
+void onColourDetected(Colour col) {
+  static Colour lastCol = Col_Count;
+  static int detectCount = 0;
+
+  if (lastCol == col) {
+    ++detectCount;
+  } else {
+    detectCount = 0;
+  }
+
+  bool isDetected = detectCount > colDetectThreshold;
+
+  if (isDetected) {
+    if (col == Col_Red) {
+      onExitSlowZone();
+    }
+    else if (col == Col_Green) {
+      onEnterSlowZone();
+    }
+  }
+}
+
+void onMarkerDetected(MarkerSensor sensorID)
+{
+  if (sensorID == MS_Left && !isColourMarker) {
+    if (colourSensor.isDetected(nextColour)) {
+      onColourDetected(nextColour);
+      isColourMarker = true;
+    }
+  }
+}
+
+static bool colourDetected = false;
+
+void onMarkerDetectEnd(MarkerSensor sensorID)
+{
+  isColourMarker = false;   
+}
+
+void onMarkerDetectStart(MarkerSensor sensorID)
+{
+  if (sensorID == MS_Right)
+  {
+    if (lapStarted)
+      onLapEnd();
+    else
+      onLapStart();
+    
+    // Flip in lap state
+    lapStarted = !lapStarted;
+  } 
+}
 
 void updateMarkerDetected(MarkerSensor sensorID)
 {
@@ -170,152 +412,8 @@ void updateMarkerDetected(MarkerSensor sensorID)
   lastDetected = detected;
 }
 
-// Funtion to drive the robot, takes a speed value between 0 and 255 (0% and 100%) as the top speed
-// both motors run at MotorSpeed until it sees a corner, then one wheel is ramped down in speed based on how sharp the corner is. this can be edited to make one wheel slow and the other speed up if need be
-// motorLowestSpeed set the lowest speed the motors are allowed to go
-void drive() {
-   // Get the line position calculated by the sensor array
-  double linePos = sensorArray.getLinePos();
-
+void detectMarkers()
+{
   updateMarkerDetected(MS_Left);
   updateMarkerDetected(MS_Right);
-
-  
-  if (colourSensor.isRed()) {
-    driveSlow();
-  }
-
-  if (colourSensor.isGreen()) {
-    driveFast();
-  }
-
-  // Update the PID controller if a line is detected
-  if (sensorArray.lineDetected()) {
-    correction = pidController.addSample(linePos, millis()) * curMotorSpeed * PIDScaleFactor;
-
-    if (correction > 0){
-      motorSpeed_R = curMotorSpeed - correction;
-      motorSpeed_L = curMotorSpeed;
-    }
-    else if (correction < 0){
-      motorSpeed_L = curMotorSpeed + correction;
-      motorSpeed_R = curMotorSpeed;
-    }
-          
-    // Clamp calculated speeds between the min/max speeds given to the function
-    motorSpeed_R = min(curMotorSpeed, max(0, motorSpeed_R));
-    motorSpeed_L = min(curMotorSpeed, max(0, motorSpeed_L));
-    
-    // Calculate an exponential moving average for the correction value.
-    expMovingAverage(&avgSpeedDiff, motorSpeed_L - motorSpeed_R, speedDiffSamples, avgSmoothing);
-
-    float diffFactor = abs(avgSpeedDiff) / (float)curMotorSpeed;
-    debugPrint("avg Diff", avgSpeedDiff);
-    // if (diffFactor < speedUpThreshold) {
-    //  curMotorSpeed += acceleration;
-    //  curMotorSpeed = min(curMotorSpeed, maxMotorSpeed);
-    // }
-  }
-  
-  debugPrint("LMS", motorSpeed_L);
-  debugPrint("RMS", motorSpeed_R);
-
-  // Updating the motors with their new speeds
-  applyMotorSpeed(motorSpeed_L, motorSpeed_R);
-}
-
-void loop() {
-  // Update the bluetooth connection
-  // reads/writes data from the module and processes commands
-  bt.update();
-
-  // Am having a weird issue where the left motor direction reverts to backwards even though I've set it to forwards
-  // Setting to forwards every loop seems to fix it for now though
-  pinMode(17, OUTPUT);
-  digitalWrite(17, LOW);
-
-  // Update sensor array and calculate line position
-  sensorArray.update();
-  colourSensor.update();
-  
-  if (driving) {
-    pidController.setP(kp);
-    pidController.setI(ki);
-    pidController.setD(kd);
-
-    // Drive the robot
-    drive();
-
-    // Keep driving while the line has not been missing for more than 0.1 seconds
-    // driving &= sensorArray.lineMissingTime() < 100;
-    
-    if (!driving) {
-      onStopDriving();
-    }
-  }
-  else {
-    // Make sure both motors are stopped
-    applyMotorSpeed(0, 0);
-
-    // Reset accum error when we loose the line
-    pidController.reset();
-    
-    // Don't start driving until the line has been detected for more than 1 second.
-    // driving |= sensorArray.lineDetectedTime() > 1000;
-
-    if (driving) {
-      onStartDriving();
-    }
-  }
-
-  // Print a new line on serial so it looks nice
-  DEBUG_PRINTLN("");
-}
-
-// When we start driving we want to set reset the PID control system and set the colour sensor to the correct colour
-void onStartDriving() {
-  
-}
-
-void onStopDriving() {
-  
-}
-
-void onLapStart() {
-
-}
-
-void onLapEnd() {
-
-}
-
-unsigned long segmentStartTime = 0;
-
-void startSegment() {
-  segmentMotorDiff = 0;
-  segmentStartTime = millis();
-}
-
-void onColourDetected(Colour col) {
-}
-
-void onMarkerDetected(MarkerSensor sensorID)
-{
-  if (sensorID == MS_Left && !isColourMarker) {
-    if (colourSensor.isDetected(nextColour)) {
-      onColourDetected(nextColour);
-      isColourMarker = true;
-    }
-  }
-}
-
-static bool colourDetected = false;
-
-void onMarkerDetectEnd(MarkerSensor sensorID)
-{
-  isColourMarker = false;   
-}
-
-void onMarkerDetectStart(MarkerSensor sensorID)
-{ 
 }

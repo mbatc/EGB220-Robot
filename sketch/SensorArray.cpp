@@ -54,24 +54,24 @@ void SensorArray::update() {
 
 void SensorArray::updateLinePosition() {
   // more debugging serial prints
-  DEBUG_PRINT("ir array: [ ");
-  for (Sensor &sensor : m_sensors) {
-    DEBUG_PRINT(sensor.getValue());
-    DEBUG_PRINT(" ");
-  }
-  DEBUG_PRINT("] ");
+  // DEBUG_PRINT("ir array: [ ");
+  // for (Sensor &sensor : m_sensors) {
+  //   DEBUG_PRINT(sensor.getValue());
+  //   DEBUG_PRINT(" ");
+  // }
+  // DEBUG_PRINT("] ");
   
-  debugPrint("markers", m_markers[0].getValue(), m_markers[1].getValue());
+  // debugPrint("markers", m_markers[0].getValue(), m_markers[1].getValue());
   
   // If a horizontal line is detected, keep doing what ya doing
   if (horizontalLineDetected()) {
-    debugPrint("Horizontal Detected");
+    // debugPrint("Horizontal Detected");
     return;
   }
   
   // If no line is detected, keep doing what ya doing
   if (!lineDetected()) {
-    debugPrint("No Line Detected");
+    // debugPrint("No Line Detected");
     return;
   }
 
@@ -129,8 +129,8 @@ void SensorArray::updateSensorValues() {
   }
   m_lastUpdateMilli = currentTime; // Store the current time (will be used in the call to this function).
   
-  debugPrint("Detected Time", m_lineDetectedMilli);
-  debugPrint("Missing Time", m_lineMissingMilli);
+  // debugPrint("Detected Time", m_lineDetectedMilli);
+  // debugPrint("Missing Time", m_lineMissingMilli);
 }
 
 bool SensorArray::isMarkerDetected(MarkerSensor sensorID)
