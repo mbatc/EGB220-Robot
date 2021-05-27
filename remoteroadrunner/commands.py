@@ -3,8 +3,8 @@ import queue
 import asyncio
 import bluetooth
 import imgui
-
 from message import Message
+
 class RoadRunnerContext:
   def __init__(self, app):
     self.commands = [  ]
@@ -19,14 +19,25 @@ class RoadRunnerContext:
 
   def connect(self, address):
     # Create the connection
-    self.bt = bluetooth.Connection(address)
+    self.bt = bluetooth.Connection(self.app, address)
     self.bt.set_response_handler(self.__bt_message_handler)
+
     # Return the connect task
     return self.bt.get_connect_task()
 
+  def handle_incoming(self):
+    if self.bt != None:
+      self.bt.handle_messages()
+
   def __bt_message_handler(self, recieved):
-    self.app.log(['Unhandled BT Message:', recieved])
-    pass
+    if serial_interface.is_new_track(recieved):
+      self.track_details = []
+    elif serial_interface.is_track_section(recieved):
+      self.track_details.append(serial_interface.parse_track_section(recieved))
+    elif serial_interface.is_lap_time(recieved):
+      self.lap_times.append(serial_interface.parse_lap_time(recieved))
+    else:
+      self.app.log('Unhandled BT Message: ' + str(recieved))
 
   def get_lap_times(self):
     return self.lap_times
@@ -52,14 +63,14 @@ class RoadRunnerContext:
     '''
     return self.variables[name]
 
-  def set_var(self, name, value):
+  def set_var(self, name, value, force=False):
     '''
     Set the local value of a variable
     '''
     if (type(self.variables[name]) == type(value)):
       sync = self.variables[name] != value
       self.variables[name] = value
-      if sync:
+      if sync or force:
         self.sync_var(name, True)
 
   def call_command(self, name):
@@ -148,7 +159,7 @@ class RoadRunnerContext:
       
   def handle_get(self, sent, response):
     try:
-      var_name, value = serial_interface.parse_response_get(message)
+      var_name, value = serial_interface.parse_response_get(response)
       self.variables[var_name] = value
     except Exception as e:
       print("Failed to get variable: {0}".format(e))

@@ -1,6 +1,6 @@
 import math
 import sys
-
+from serial_interface import *
 import imgui
 
 
@@ -139,6 +139,11 @@ class VariableWindow(Window):
     super(VariableWindow, self).__init__(ui, x, y, width, height, "Variables")
 
   def show_var(self, name):
+    imgui.push_id(name)
+    force = imgui.button("resend")
+
+    imgui.same_line()
+
     val = self.app.context.get_var(name)
     changed = False
     if isinstance(val, float):
@@ -151,7 +156,9 @@ class VariableWindow(Window):
       imgui.text('Unknown: ' + name)
 
     if not imgui.is_item_active():
-      self.app.context.set_var(name, new_val)
+      self.app.context.set_var(name, new_val, force)
+
+    imgui.pop_id()
 
   def on_draw(self):
     style = imgui.get_style()
@@ -273,14 +280,10 @@ class ConsoleWindow(Window):
         self.input = ""
         self.take_focus()
 
-STRAIGHT = 0
-RTURN    = 1
-LTURN    = 2
-
 TRACK_TYPE_NAME = [
   'Straight',
-  'Right Turn',
-  'Left Turn'
+  'Left Turn',
+  'Right Turn'
 ]
 
 SEGMENT_LINE = 0
@@ -401,21 +404,6 @@ class BoundingBox():
 class TrackMapWindow(Window):
   def __init__(self, ui, x, y, width, height):
     super(TrackMapWindow, self).__init__(ui, x, y, width, height, "Track Map")
-    self.track_details = [
-      [STRAIGHT, 2],
-      [RTURN,    2],
-      [STRAIGHT, 2],
-      [RTURN,    2],
-      [STRAIGHT, 2],
-      [RTURN,    2],
-      [STRAIGHT, 2],
-      [RTURN,    2]
-    ]
-
-    self.lap_times = [
-      10.0,
-      9.0
-    ]
 
     self.hovered_track  = -1
     self.selected_track = -1
@@ -465,7 +453,7 @@ class TrackMapWindow(Window):
     imgui.columns(2)
 
     self.hovered_track = -1
-    for i, detail in enumerate(self.track_details):
+    for i, detail in enumerate(self.app.context.get_track_details()):
       imgui.push_id(str(i))
       start_pos = imgui.get_cursor_screen_pos()
 
@@ -478,7 +466,7 @@ class TrackMapWindow(Window):
       _, detail[0] = imgui.listbox(TRACK_TYPE_NAME[detail[0]], detail[0], TRACK_TYPE_NAME, 1)
       _, detail[1] = imgui.input_float('size', detail[1])
       if imgui.button('Remove'):
-        self.track_details.remove(detail)
+        self.app.context.get_track_details().remove(detail)
       end_pos = imgui.get_cursor_screen_pos()
       max_x   = imgui.get_window_position().x + imgui.get_window_size().x
       imgui.pop_id()
@@ -491,7 +479,8 @@ class TrackMapWindow(Window):
       imgui.separator()
 
     if imgui.button('Add'):
-      self.track_details.append([ STRAIGHT, 1 ])
+      self.app.context.get_track_details().append([ STRAIGHT, 1 ])
+
     imgui.columns(1)
     imgui.end_child()
 

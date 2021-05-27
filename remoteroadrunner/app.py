@@ -170,6 +170,8 @@ class App:
       self.refresh_variables()
       self.connecting = False
 
+    self.context.handle_incoming()
+
     for cmd in self.console_in:
       self.process_console(cmd)
     self.console_in = []
