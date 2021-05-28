@@ -32,6 +32,15 @@ int ColourSensor::getIntensity() {
   return b;
 }
 
+Colour ColourSensor::getColour() const
+{
+  if (isRed())        return Col_Red;
+  else if (isGreen()) return Col_Green;
+  else if (isBlack()) return Col_Black;
+  else if (isWhite()) return Col_White;
+  else return Col_None;
+}
+
 bool ColourSensor::isDetected(Colour col) const
 {
   switch (col)
@@ -50,12 +59,12 @@ void ColourSensor::update()
 
 bool ColourSensor::isGreen() const
 {
-  return m_intensity > 10 && m_intensity < 17;
+  return m_intensity > 8 && m_intensity < 16;
 }
 
 bool ColourSensor::isRed() const
 {
-  return m_intensity >25 && m_intensity < 35;
+  return m_intensity > 20 && m_intensity < 35;
 }
 
 bool ColourSensor::isWhite() const
@@ -65,5 +74,5 @@ bool ColourSensor::isWhite() const
 
 bool ColourSensor::isBlack() const
 {
-  return m_intensity < 10;
+  return m_intensity < 6;
 }

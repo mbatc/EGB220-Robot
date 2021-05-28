@@ -3,8 +3,11 @@
 
 enum Colour
 {
+  Col_None,
   Col_Red,
   Col_Green,
+  Col_White,
+  Col_Black,
   Col_Count
 };
 
@@ -14,6 +17,8 @@ public:
   ColourSensor();
 
   void update();
+
+  Colour getColour() const;
 
   bool isDetected(Colour col) const;
   bool isGreen() const;

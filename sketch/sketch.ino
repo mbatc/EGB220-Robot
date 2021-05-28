@@ -22,16 +22,18 @@ const int motors_L     = 11;         // Left motor pin
 const int motorsDir[2] = { 17, 60 }; // Motor direction pins **** not pin 60**** just havent been bothered to find it yet
 
 bool   driving        = false; // Is the motor currently driving
-bool   allowDrive     = false; // Can the robot start driving
+bool   allowDrive     = true;  // Can the robot start driving
 int    straightSpeed  = 170;   // The speed for the straights
-int    cornerSpeed    = 80;    // The speed for the corners
-int    slowSpeed      = 40;    // The speed for the slow zone
+int    cornerSpeed    = 150;    // The speed for the corners
+int    slowSpeed      = 60;    // The speed for the slow zone
 bool   inStraight     = false; // Is the robot in a straight track section
 bool   allowAccell    = false; // Can the robot accelerate
 int    curMotorSpeed  = cornerSpeed; // Setup the initial motor speed to be the cornering speed
 int    acceleration   = 10;    // How fast does the robot accelerate
 int    lapStopTime    = 4000;  // How many milliseconds to stop for between laps
-int    colDetectThreshold = 3; // How many consecutive times a colour should be detected before taking action
+int    colDetectThreshold = 10; // How many consecutive times a colour should be detected before taking action
+
+bool lastMarkerDetected[MS_Count] = { 0 };
 
 // Control system parameters
 double kp = 2.5; // Proportional control
@@ -43,8 +45,8 @@ double PIDScaleFactor = 4; // this value adjusts how sensitive the PID correctio
 double avgSpeedDiff = 0;       // Average difference in motor speed
 double avgSmoothing = 2;       // Exponential average smoothing
 int speedDiffSamples = 10;     // Number of samples to include in the average 
-double speedUpThreshold = 0.2; // The percentage motor difference to threshold to consider the track straight.
-
+double speedUpThreshold = 0.5; // The percentage motor difference to threshold to consider the track straight.
+int straightLoops = 0;
 // Current control system correction value
 float correction = 0;
 
@@ -55,11 +57,13 @@ unsigned long lapFinishTime = 0;
 unsigned long stopTime = 0;
 
 void startCalibration() {
+  Serial.println("Start Calibration");
   sensorArray.resetCalibration();
   g_calibrateSensors = true;
 }
 
 void endCalibration() {
+  Serial.println("End Calibration");
   g_calibrateSensors = false;
 }
 
@@ -69,12 +73,6 @@ void startDriving() {
 
 void stopDriving() {
   allowDrive = false;
-}
-
-bool sendTrackDetails = false;
-
-void sendTrack() {
-  sendTrackDetails = true;
 }
 
 // Expose variables to the command interface
@@ -95,8 +93,7 @@ Commands::CmdDef cmdList[] = {
   { "startCalib", startCalibration },
   { "endCalib",   endCalibration },
   { "drive",      startDriving },
-  { "stop",       stopDriving },
-  { "sendTrack",  sendTrack }
+  { "stop",       stopDriving }
 };
 
 // Create the command set
@@ -162,6 +159,8 @@ int  segmentLoops     = 0;
 
 void onStartDriving()
 {
+  Serial.println("Start Driving");
+
   // Reset the stop time.
   stopTime = 0;
   
@@ -175,6 +174,8 @@ void onStartDriving()
 
 void sendTrackInfo()
 {
+  Serial.println("Send Track");
+
   bt.print("newtrack");
   bt.update(); // Send data
   for (size_t i = 0; i < trackMap.sectionCount(); ++i) {
@@ -190,8 +191,16 @@ void sendTrackInfo()
   bt.update(); // Send data
 }
 
+void reset() {
+  lapStarted = false;
+  stopTime   = 0;
+  lastMarkerDetected[0] = false;
+  lastMarkerDetected[1] = false;
+}
+
 void onLapStart()
 {
+  Serial.println("Start Lap");
   lapStartTime = millis();
 }
 
@@ -199,16 +208,19 @@ void onLapEnd()
 {
   lapFinishTime = millis();
   stopTime = lapFinishTime + 500;  
-  allowDrive = false;
+  debugPrint("End Lap: ", lapFinishTime + 500);
+  Serial.println();
 }
 
 void onEnterSlowZone() {
+  Serial.println("Start Slow Zone");
   inStraight    = true;
   allowAccell   = false;
   curMotorSpeed = slowSpeed;
 }
 
 void onExitSlowZone() {
+  Serial.println("Exit Slow Zone");
   inStraight = true;
   allowAccell = true;
   curMotorSpeed = cornerSpeed;
@@ -220,10 +232,11 @@ void onCornerSection() {
 }
 
 void onStraightSection() {
-  allowAccell = true;  
+  allowAccell = true;
 }
 
 void onLapBreak() {
+  Serial.println("Lap finished");
   // Stop motors
   applyMotorSpeed(0, 0);
   driving = false;
@@ -240,6 +253,9 @@ void onLapBreak() {
 
   if (delayTime > 0)
     delay(delayTime);
+
+  stopTime = 0;
+  lapStarted = false;
 }
 
 // Funtion to drive the robot, takes a speed value between 0 and 255 (0% and 100%) as the top speed
@@ -269,12 +285,24 @@ void drive() {
     // Calculate an exponential moving average for the motor speed difference.
     expMovingAverage(&avgSpeedDiff, motorSpeed_L - motorSpeed_R, speedDiffSamples, avgSmoothing);
     float diffFactor = abs(avgSpeedDiff) / (float)curMotorSpeed;
-    inStraight |= diffFactor < speedUpThreshold;
 
-    if (inStraight)
-      onStraightSection();
+    if (diffFactor < speedUpThreshold)
+      ++straightLoops;
     else
-      onCornerSection();
+      straightLoops = 0;
+
+    inStraight |= straightLoops > 30;
+    
+    // if (inStraight)
+    //   onStraightSection();
+    // else
+    //  onCornerSection();
+
+    Serial.println(allowAccell);
+
+    // if (allowAccell) {
+    //  curMotorSpeed += acceleration;
+    // }
   }
 
   // Updating the motors with their new speeds
@@ -288,22 +316,22 @@ void loop() {
   // reads/writes data from the module and processes commands
   bt.update();
 
-  if (sendTrackDetails) {
-    lapStartTime = 25;
-    lapFinishTime = 13000;
-    sendTrackInfo();
-    sendTrackDetails = false;
-  }
-
   // Am having a weird issue where the left motor direction reverts to backwards even though I've set it to forwards
   // Setting to forwards every loop seems to fix it for now though
   pinMode(17, OUTPUT);
   digitalWrite(17, LOW);
 
+ 
   // Update sensor array and calculate line position
   sensorArray.update();
   colourSensor.update();
   
+  if (g_calibrateSensors)
+  {
+    reset();
+    return;
+  }
+
   if (stopTime != 0 && millis() >= stopTime) {
     onLapBreak();
   }
@@ -314,11 +342,11 @@ void loop() {
     pidController.setI(ki);
     pidController.setD(kd);
 
-    // Detect track markers
-    detectMarkers();
-
     // Drive the robot
     drive();
+
+    // Detect track markers
+    detectMarkers();
 
     // Keep driving while the line has not been missing for more than 0.1 seconds
     driving &= sensorArray.lineMissingTime() < 100 && allowDrive;
@@ -330,13 +358,12 @@ void loop() {
     // Don't start driving until the line has been detected for more than 1 second.
     driving |= sensorArray.lineDetectedTime() > 1000 && allowDrive;
 
+    reset();
+
     if (driving) {
       onStartDriving();
     }
   }
-
-  // Print a new line on serial so it looks nice
-  // DEBUG_PRINTLN("");
 }
 
 void onColourDetected(Colour col) {
@@ -352,34 +379,44 @@ void onColourDetected(Colour col) {
   bool isDetected = detectCount > colDetectThreshold;
 
   if (isDetected) {
+    Serial.print("Detected Colour: ");
+    Serial.println(col);
+
     if (col == Col_Red) {
       onExitSlowZone();
     }
     else if (col == Col_Green) {
       onEnterSlowZone();
     }
-  }
-}
-
-void onMarkerDetected(MarkerSensor sensorID)
-{
-  if (sensorID == MS_Left && !isColourMarker) {
-    if (colourSensor.isDetected(nextColour)) {
-      onColourDetected(nextColour);
-      isColourMarker = true;
+    else if (col == Col_White) {
+      inStraight = false;
     }
   }
+  
+  lastCol = col;
 }
 
-static bool colourDetected = false;
+void onMarkerDetected(MarkerSensor sensorID) {
+  if (sensorID == MS_Left && !isColourMarker) {
+  }
+}
 
 void onMarkerDetectEnd(MarkerSensor sensorID)
 {
+  debugPrint("Marker End Detected", int(sensorID));
+  Serial.println();
+
+  inStraight = isColourMarker;
+  if (!inStraight)
+    DEBUG_PRINTLN("In Corner");
   isColourMarker = false;   
 }
 
 void onMarkerDetectStart(MarkerSensor sensorID)
 {
+  debugPrint("Marker Start", int(sensorID));
+  Serial.println();
+
   if (sensorID == MS_Right)
   {
     if (lapStarted)
@@ -389,31 +426,33 @@ void onMarkerDetectStart(MarkerSensor sensorID)
     
     // Flip in lap state
     lapStarted = !lapStarted;
-  } 
+  }
 }
 
 void updateMarkerDetected(MarkerSensor sensorID)
 {
-  static bool lastMarkerDetected[MS_Count] = { 0 };
   bool &lastDetected = lastMarkerDetected[sensorID];
   bool detected = sensorArray.isMarkerDetected(sensorID);
   if (detected)
-  {
-    if (!lastDetected)
+  { 
+    if (!lastDetected) {
       onMarkerDetectStart(sensorID);
+    }
     onMarkerDetected(sensorID);
   }
   else
   {
-    if (lastDetected)
+    if (lastDetected) {
       onMarkerDetectEnd(sensorID);
+    }
   }
 
   lastDetected = detected;
 }
 
 void detectMarkers()
-{
-  updateMarkerDetected(MS_Left);
-  updateMarkerDetected(MS_Right);
+{ 
+  onColourDetected(colourSensor.getColour());
+  // updateMarkerDetected(MS_Left);
+  // updateMarkerDetected(MS_Right);
 }

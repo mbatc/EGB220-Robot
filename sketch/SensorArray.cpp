@@ -128,9 +128,6 @@ void SensorArray::updateSensorValues() {
     m_lineDetectedMilli = 0;
   }
   m_lastUpdateMilli = currentTime; // Store the current time (will be used in the call to this function).
-  
-  // debugPrint("Detected Time", m_lineDetectedMilli);
-  // debugPrint("Missing Time", m_lineMissingMilli);
 }
 
 bool SensorArray::isMarkerDetected(MarkerSensor sensorID)
