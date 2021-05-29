@@ -61,7 +61,8 @@ void SensorArray::updateLinePosition() {
   // }
   // DEBUG_PRINT("] ");
   
-  // debugPrint("markers", m_markers[0].getValue(), m_markers[1].getValue());
+  debugPrint("markers", m_markers[0].getValue(), m_markers[1].getValue());
+  Serial.println();
   
   // If a horizontal line is detected, keep doing what ya doing
   if (horizontalLineDetected()) {
@@ -132,7 +133,7 @@ void SensorArray::updateSensorValues() {
 
 bool SensorArray::isMarkerDetected(MarkerSensor sensorID)
 {
-  return m_markers[sensorID].getValue() < 512;
+  return m_markers[sensorID].getValue() < 35;
 }
 
 void SensorArray::resetCalibration()

@@ -59,7 +59,7 @@ void ColourSensor::update()
 
 bool ColourSensor::isGreen() const
 {
-  return m_intensity > 8 && m_intensity < 16;
+  return m_intensity > 8 && m_intensity < 20;
 }
 
 bool ColourSensor::isRed() const
