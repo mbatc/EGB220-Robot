@@ -8,6 +8,7 @@
 #include "ColourSensor.h"
 #include "List.h"
 #include "TrackMap.h"
+#include "Interrupts.h"
 
 SensorArray   sensorArray; // Sensor array object. Handles reading sensors and calculating line position
 PIDController pidController;
@@ -106,6 +107,26 @@ Commands cmdSet(cmdList, ArraySize(cmdList), cmdVars, ArraySize(cmdVars));
 
 Bluetooth bt(10, 9, &cmdSet);
 
+void detectMarkers();
+
+void toggleLED()
+{
+  static bool enableLED = false;
+
+  Serial.println("In Interrupt");
+  
+  if (enableLED) {
+    pinMode(13, OUTPUT);
+    digitalWrite(13, HIGH);
+  }
+  else {
+    pinMode(13, OUTPUT);
+    digitalWrite(13, LOW);
+  }
+
+  enableLED = !enableLED;
+}
+
 void setup() {
   // Enabling serial
   Serial.begin(9600);
@@ -148,6 +169,8 @@ void setup() {
   trackMap.addSection(30, 10);
   trackMap.addSection(0, 10);
   trackMap.addSection(30, 10);
+  
+  Interrupts::attach(0, 500, detectMarkers);
 }
 
 // This function takes a speed for each motor and sets their pins.
@@ -236,7 +259,7 @@ void onExitSlowZone() {
 
 void onEnterCorner() {
   inStraight = false;
-  curMotorSpeed = 
+  curMotorSpeed = cornerSpeed;
 }
 
 void onLapBreak() {
@@ -383,10 +406,9 @@ void onColourDetected(Colour col) {
   static bool          allowDetect  = false;
   
   int intensity = colourSensor.getIntensity();
-  debugPrint("Intensity", intensity);
-  Serial.println();
-
+  
   if (!allowDetect) {
+    maxIntensity = 0;
     if (colourSensor.isBlack()) {
       allowDetect = true;
       return;
@@ -403,28 +425,14 @@ void onColourDetected(Colour col) {
     debugPrint("Colour Detected", lastColour);
     Serial.println();
 
-    static bool enableLED = false;
-    
     if (lastColour == Col_Red) {
       onExitSlowZone();
-      enableLED = !enableLED;
     }
     else if (lastColour == Col_Green) {
       onEnterSlowZone();
-      enableLED = !enableLED;
     }
     else if (lastColour == Col_White) {
       onEnterCorner();
-      enableLED= !enableLED;
-    }
-
-    if (enableLED) {
-      pinMode(13, OUTPUT);
-      digitalWrite(13, HIGH);
-    }
-    else {
-      pinMode(13, OUTPUT);
-      digitalWrite(13, LOW);     
     }
     
     allowDetect = false;
@@ -484,6 +492,9 @@ void updateMarkerDetected(MarkerSensor sensorID)
 
 void detectMarkers()
 { 
+  colourSensor.update();
+  sensorArray.updateMarkers();
+
   onColourDetected(colourSensor.getColour());
   // updateMarkerDetected(MS_Left);
   updateMarkerDetected(MS_Right);

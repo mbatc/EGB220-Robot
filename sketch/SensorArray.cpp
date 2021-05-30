@@ -61,8 +61,8 @@ void SensorArray::updateLinePosition() {
   // }
   // DEBUG_PRINT("] ");
   
-  debugPrint("markers", m_markers[0].getValue(), m_markers[1].getValue());
-  Serial.println();
+  // debugPrint("markers", m_markers[0].getValue(), m_markers[1].getValue());
+  // Serial.println();
   
   // If a horizontal line is detected, keep doing what ya doing
   if (horizontalLineDetected()) {
@@ -94,13 +94,15 @@ void SensorArray::updateLinePosition() {
   rollingAverage(&m_averageLinePosition, m_linePosition, m_averageSampleCount);
 }
 
+void SensorArray::updateMarkers() {
+  for (Sensor &marker : m_markers)
+    marker.read();
+}
+
 void SensorArray::updateSensorValues() {
   // Read in all the sensor values
   for (Sensor &sensor : m_sensors)
     sensor.read();
-
-  for (Sensor &marker : m_markers)
-    marker.read();
 
   // Calculate the average value for all sensors.
   // Used to differentiate between no-line detected and a horizontal line detected.

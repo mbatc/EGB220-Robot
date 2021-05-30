@@ -86,6 +86,9 @@ public:
   // Should be called once per loop().
   void update();
 
+  // Reads and updates the marker sensor values 
+  void updateMarkers();
+
   void resetCalibration();
   
 protected:
