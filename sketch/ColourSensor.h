@@ -11,29 +11,21 @@ enum Colour
   Col_Count
 };
 
+Colour getColour(int intensity);
+
 class ColourSensor
 {
 public:
   ColourSensor();
-
   void update();
-
-  Colour getColour() const;
-
-  bool isDetected(Colour col) const;
-  bool isGreen() const;
-  bool isRed() const;
-  bool isWhite() const;
-  bool isBlack() const;
-
   int getIntensity();
   
 private:
-  int m_intensity;
+  volatile int m_intensity;
 
-  int m_outPin = -1;
-  int m_signal2 = -1;
-  int m_signal3 = -1;
+  volatile int m_outPin = -1;
+  volatile int m_signal2 = -1;
+  volatile int m_signal3 = -1;
 };
 
 #endif

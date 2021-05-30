@@ -15,12 +15,19 @@ PIDController pidController;
 ColourSensor  colourSensor;
 TrackMap      trackMap;
 
-bool   isColourMarker = false;
-Colour nextColour     = Col_Green;
-
 const int motors_R     = 3;          // Right motor pin
 const int motors_L     = 11;         // Left motor pin
 const int motorsDir[2] = { 17, 60 }; // Motor direction pins **** not pin 60**** just havent been bothered to find it yet
+
+volatile int           colourIntensity  = 0;
+volatile unsigned long lastColourChange = 0;
+
+volatile unsigned long markerDetectTime = 0;
+volatile int    markerValue = 0;
+volatile bool   markerWasDetected = false;
+volatile bool   markerWasMissing  = false;
+volatile unsigned long int markerMissingTime = 0;
+volatile bool   markerIsDetected  = false;
 
 bool   driving        = false; // Is the motor currently driving
 bool   allowDrive     = true;  // Can the robot start driving
@@ -35,19 +42,17 @@ int    lapStopTime    = 4000;  // How many milliseconds to stop for between laps
 int    colDetectThreshold = 10; // How many consecutive times a colour should be detected before taking action
 int    stopDelay      = 0;
 
-bool lastMarkerDetected[MS_Count] = { 0 };
-
 // Control system parameters
-double kp = 2.5; // Proportional control
+double kp = 4.5; // Proportional control
 double ki = 0;   // Integral control
-double kd = 75;  // Derivative control
+double kd = 90;  // Derivative control
 double PIDScaleFactor = 4; // this value adjusts how sensitive the PID correction is on the turning
 
 // Average wheel speed difference
 double avgSpeedDiff = 0;       // Average difference in motor speed
 double avgSmoothing = 2;       // Exponential average smoothing
 int speedDiffSamples = 10;     // Number of samples to include in the average 
-double speedUpThreshold = 0.5; // The percentage motor difference to threshold to consider the track straight.
+double speedUpThreshold = 1; // The percentage motor difference to threshold to consider the track straight.
 int straightLoops = 0;
 // Current control system correction value
 float correction = 0;
@@ -58,8 +63,9 @@ unsigned long lapStartTime = 0;
 unsigned long lapFinishTime = 0;
 unsigned long stopTime = 0;
 
-unsigned long colourDetectTime  = 0;
-int           maxColourIntensity = 0;
+unsigned int samplingFrequency = 500;
+
+Sensor rightTrackSensor;
 
 void startCalibration() {
   Serial.println("Start Calibration");
@@ -91,7 +97,8 @@ Commands::VarDef cmdVars[] = {
   { "slwSpd",   slowSpeed },
   { "acl",      acceleration },
   { "spdUpThr", speedUpThreshold },
-  { "stopDelay", stopDelay }
+  { "stopDelay", stopDelay },
+  { "sampleFreq", samplingFrequency }
 };
 
 // Expose functions to the command interface
@@ -107,25 +114,8 @@ Commands cmdSet(cmdList, ArraySize(cmdList), cmdVars, ArraySize(cmdVars));
 
 Bluetooth bt(10, 9, &cmdSet);
 
-void detectMarkers();
-
-void toggleLED()
-{
-  static bool enableLED = false;
-
-  Serial.println("In Interrupt");
-  
-  if (enableLED) {
-    pinMode(13, OUTPUT);
-    digitalWrite(13, HIGH);
-  }
-  else {
-    pinMode(13, OUTPUT);
-    digitalWrite(13, LOW);
-  }
-
-  enableLED = !enableLED;
-}
+void detectRightMarker();
+void detectLeftMarker();
 
 void setup() {
   // Enabling serial
@@ -134,8 +124,8 @@ void setup() {
   // Configuration for the IR sensor array
   SensorConfig sensorConf = {
     // Marker sensor pins
-    .leftMarkerPin = 23,
-    .rightMarkerPin = 22,
+    // .leftMarkerPin = 23,
+    // .rightMarkerPin = 22,
     
     // IR Sensor Pins
     // .recvPins = { 15, 2, 1, 0, 8, 7, 29, 6 },
@@ -169,8 +159,19 @@ void setup() {
   trackMap.addSection(30, 10);
   trackMap.addSection(0, 10);
   trackMap.addSection(30, 10);
+
+  rightTrackSensor.setPin(22);
   
-  Interrupts::attach(0, 500, detectMarkers);
+}
+
+void attachInterrupts() {
+  Interrupts::attach(2, samplingFrequency, detectRightMarker);
+  Interrupts::attach(1, samplingFrequency, detectLeftMarker);
+}
+
+void detachInterrupts() {
+  Interrupts::detach(2);
+  Interrupts::detach(1);
 }
 
 // This function takes a speed for each motor and sets their pins.
@@ -201,6 +202,21 @@ void onStartDriving()
 
   // Set the motor speed to the corner speed
   curMotorSpeed = cornerSpeed;
+
+  markerWasDetected = false;
+  markerIsDetected  = false;
+  lapStarted = false;
+  
+  pinMode(13, OUTPUT);
+  digitalWrite(13, HIGH);
+
+  attachInterrupts();
+}
+
+void onStopDriving() {
+  detachInterrupts();
+  pinMode(13, OUTPUT);
+  digitalWrite(13, LOW);
 }
 
 void sendTrackInfo()
@@ -225,14 +241,13 @@ void sendTrackInfo()
 void reset() {
   lapStarted = false;
   stopTime   = 0;
-  lastMarkerDetected[0] = false;
-  lastMarkerDetected[1] = false;
 }
 
 void onLapStart()
 {
   Serial.println("Start Lap");
   lapStartTime = millis();
+  lapStarted  = true;
 }
 
 void onLapEnd()
@@ -240,6 +255,7 @@ void onLapEnd()
   lapFinishTime = millis();
   stopTime = lapFinishTime + stopDelay;  
   debugPrint("End Lap: ", lapFinishTime + stopDelay);
+  lapStarted = false;
   Serial.println();
 }
 
@@ -252,17 +268,20 @@ void onEnterSlowZone() {
 
 void onExitSlowZone() {
   Serial.println("Exit Slow Zone");
-  inStraight = true;
-  allowAccell = true;
+  inStraight    = true;
+  allowAccell   = true;
   curMotorSpeed = cornerSpeed;
 }
 
 void onEnterCorner() {
-  inStraight = false;
+  Serial.println("Enter Corner");
+  inStraight    = false;
+  allowAccell   = true;
   curMotorSpeed = cornerSpeed;
+  straightLoops = 0;
 }
 
-void onLapBreak() {
+void onLapBreak() {  
   Serial.println("Lap finished");
   // Stop motors
   applyMotorSpeed(0, 0);
@@ -283,6 +302,38 @@ void onLapBreak() {
 
   stopTime = 0;
   lapStarted = false;
+}
+
+void detectRightMarker()
+{
+  static const int detectThreshold = 200;
+  
+  rightTrackSensor.read();
+  
+  markerValue = ((markerValue * (3 - 1)) + rightTrackSensor.getValue()) / 3; 
+  markerIsDetected = markerValue < detectThreshold;
+  
+  if (!markerWasDetected && markerIsDetected) {
+    markerDetectTime = millis();
+  }
+
+  if (markerIsDetected || (!markerWasMissing && !markerIsDetected)) {
+    markerMissingTime = millis();
+  }
+  
+  markerWasDetected |= markerIsDetected;
+  markerWasMissing  |= !markerIsDetected;
+}
+
+void detectLeftMarker()
+{
+  colourSensor.update();
+  unsigned int intensity = colourSensor.getIntensity();
+  if (intensity > colourIntensity)
+  {
+    colourIntensity = intensity;
+    lastColourChange = millis();
+  }
 }
 
 // Funtion to drive the robot, takes a speed value between 0 and 255 (0% and 100%) as the top speed
@@ -319,29 +370,20 @@ void drive() {
       straightLoops = 0;
 
     if (straightLoops > 25) {
-      allowAccell = true;
       inStraight = true;
     }
 
     if (inStraight && allowAccell) {
-      curMotorSpeed = straightSpeed;
+      curMotorSpeed = min(acceleration + curMotorSpeed, straightSpeed);
     }
-    
-    // if (inStraight)
-    //   onStraightSection();
-    // else
-    //  onCornerSection();
-
-    // if (allowAccell) {
-    //  curMotorSpeed += acceleration;
-    // }
   }
 
   // Updating the motors with their new speeds
   applyMotorSpeed(motorSpeed_L, motorSpeed_R);
 }
 
-void detectMarkers();
+Colour lastCol = Col_None;
+bool canDetectMarker = false;
 
 void loop() {
   // Update the bluetooth connection
@@ -352,12 +394,10 @@ void loop() {
   // Setting to forwards every loop seems to fix it for now though
   pinMode(17, OUTPUT);
   digitalWrite(17, LOW);
-
  
   // Update sensor array and calculate line position
   sensorArray.update();
-  colourSensor.update();
-  
+
   if (g_calibrateSensors)
   {
     reset();
@@ -374,14 +414,61 @@ void loop() {
     pidController.setI(ki);
     pidController.setD(kd);
 
-    // Detect track markers
-    detectMarkers();
-
     // Drive the robot
     drive();
 
+    debugPrint("Colour Intensity", colourIntensity);
+    debugPrint("Marker", markerValue);
+    
+    Colour col = getColour(colourIntensity);
+    if (millis() - lastColourChange > 10) { // Read colour
+      if (col != lastCol) {
+        debugPrint("Reading Colour", colourIntensity, col);
+        if (lastCol == Col_Black) {
+          if (col == Col_Green) {
+            onEnterSlowZone();
+          }
+          else if (col == Col_Red) {
+            onExitSlowZone();
+          }
+          else if (col == Col_White && !markerWasDetected) {
+            onEnterCorner();
+          }
+        }
+      }
+      
+      lastCol          = col;
+      lastColourChange = millis();
+      colourIntensity  = 0;
+    }
+    
+    markerWasDetected &= col == Col_Black;
+    
+    debugPrint("Marker", markerMissingTime, markerWasDetected, markerWasMissing, canDetectMarker);
+    
+    if (millis() - markerMissingTime > 50 && markerWasDetected && canDetectMarker) {
+      
+      if (!lapStarted) {
+        onLapStart();
+      }
+      else {
+        onLapEnd();
+      }
+      
+      markerWasDetected = false;
+      markerWasMissing  = false;
+      canDetectMarker   = false;
+    }
+
+    Serial.println();
+    canDetectMarker |= millis() - markerMissingTime > 250;
+
     // Keep driving while the line has not been missing for more than 0.1 seconds
     driving &= sensorArray.lineMissingTime() < 100 && allowDrive;
+    
+    if (!driving) {
+      onStopDriving();
+    }
   }
   else {
     // Make sure both motors are stopped
@@ -396,106 +483,4 @@ void loop() {
       onStartDriving();
     }
   }
-}
-
-void onColourDetected(Colour col) {
-  static int           maxIntensity = 0;
-  static unsigned long changeTime   = 0;
-  static const int     detectTime   = 75;
-  static Colour        lastColour   = Col_None;
-  static bool          allowDetect  = false;
-  
-  int intensity = colourSensor.getIntensity();
-  
-  if (!allowDetect) {
-    maxIntensity = 0;
-    if (colourSensor.isBlack()) {
-      allowDetect = true;
-      return;
-    }
-  }
-
-  if (intensity > maxIntensity) {
-    maxIntensity = intensity;
-    changeTime = millis();
-    lastColour = colourSensor.getColour();
-  }
-
-  if (millis() - changeTime > detectTime) {
-    debugPrint("Colour Detected", lastColour);
-    Serial.println();
-
-    if (lastColour == Col_Red) {
-      onExitSlowZone();
-    }
-    else if (lastColour == Col_Green) {
-      onEnterSlowZone();
-    }
-    else if (lastColour == Col_White) {
-      onEnterCorner();
-    }
-    
-    allowDetect = false;
-    maxIntensity = 0;
-    lastColour = Col_None;
-  }
-}
-
-bool isStartStopMarker = true;
-
-void onMarkerDetected(MarkerSensor sensorID) {
-  if (sensorID == MS_Right) {
-    isStartStopMarker &= colourSensor.isBlack();
-  }
-}
-
-void onMarkerDetectEnd(MarkerSensor sensorID)
-{
-  if (sensorID == MS_Right && isStartStopMarker)
-  {
-    if (lapStarted)
-      onLapEnd();
-    else
-      onLapStart();
-    
-    // Flip in lap state
-    lapStarted = !lapStarted;
-  }
-  
-  isStartStopMarker = true;
-}
-
-void onMarkerDetectStart(MarkerSensor sensorID)
-{
-}
-
-void updateMarkerDetected(MarkerSensor sensorID)
-{
-  bool &lastDetected = lastMarkerDetected[sensorID];
-  bool detected = sensorArray.isMarkerDetected(sensorID);
-  if (detected)
-  { 
-    if (!lastDetected) {
-      onMarkerDetectStart(sensorID);
-    }
-    onMarkerDetected(sensorID);
-  }
-  else
-  {
-    if (lastDetected) {
-      onMarkerDetectEnd(sensorID);
-    }
-  }
-
-  lastDetected = detected;
-}
-
-void detectMarkers()
-{ 
-  colourSensor.update();
-  sensorArray.updateMarkers();
-
-  onColourDetected(colourSensor.getColour());
-  // updateMarkerDetected(MS_Left);
-  updateMarkerDetected(MS_Right);
 }

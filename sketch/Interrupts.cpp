@@ -64,22 +64,11 @@ public:
     unsigned int prescalerIndex = 0;
     unsigned long requiredComparison = 0;
 
-    Serial.print("Byte Width: ");
-    Serial.println(m_width);
-      
-    Serial.print("Max Comp: ");
-    Serial.println(m_maxCompareValue);
-    
     // Determine the prescaler and compare register value
-    Serial.println("Calculating comp and prescale");
     for (int i = 0; i < sizeof(g_prescalers) / sizeof(g_prescalers[0]); ++i) {
       prescalerIndex     = i + 1;
       prescaler          = g_prescalers[i];
       requiredComparison = (CLOCK_SPEED / (prescaler * frequency)) - 1;
-      Serial.print("Test Prescaler Comp: ");
-      Serial.println(prescaler);
-      Serial.print("Test Comparison: ");
-      Serial.println(requiredComparison);
       if (requiredComparison < m_maxCompareValue)
         break;
       requiredComparison = 0;
@@ -102,13 +91,11 @@ public:
     switch (m_width)
     {
     case 1:
-      Serial.println("Setting 8 Bit Registers");
       *m_u8.TCNT = 0;
       *m_u8.OCRA = (uint8_t)requiredComparison;
       *m_u8.OCRB = (uint8_t)requiredComparison;
       break;
     case 2:
-      Serial.println("Setting 16 Bit Registers");
       *m_u16.TCNT = 0;
       *m_u16.OCRA = (uint16_t)requiredComparison;
       *m_u16.OCRB = (uint16_t)requiredComparison;
@@ -122,7 +109,6 @@ public:
   }
 
   void detach() {
-    Serial.println("Detaching interrupt");
     m_callback = nullptr;
     *m_TCCRA = 0; // Clear the control registers
     *m_TCCRB = 0;

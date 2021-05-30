@@ -13,42 +13,33 @@ extern bool g_calibrateSensors;
 // Struct that contains configuration options for the sensor array
 struct SensorConfig
 {
-  int leftMarkerPin;
-  int rightMarkerPin;
   int recvPins[IR_SENSOR_COUNT];
   int detectThreshold;
   double sensorFalloff;
 };
 
-enum MarkerSensor
+class Sensor
 {
-  MS_Left,
-  MS_Right,
-  MS_Count,
-};
+public:
+  void setPin(int pin);
+    
+  int getMin() const;
+  int getMax() const;
+  int getValue() const;
+  int getValueRaw() const;
+  int read();
+  void resetCalibration();
 
+protected:
+  int m_pin = 0;
+  volatile int m_min = 0;    // The minimum sensor value
+  volatile int m_max = 1024; // The maximum sensor value
+  volatile int m_value = 0;
+  volatile int m_rawValue = 0;
+};
+  
 class SensorArray
 {
-  class Sensor
-  {
-  public:
-    void setPin(int pin);
-    
-    int getMin() const;
-    int getMax() const;
-    int getValue() const;
-    int getValueRaw() const;
-    int read();
-
-    void resetCalibration();
-
-  protected:
-    int m_pin = 0;
-    int m_min = 0;    // The minimum sensor value
-    int m_max = 1024; // The maximum sensor value
-    int m_value = 0;
-    int m_rawValue = 0;
-  };
 
 public:
   // Setup the sensor array using the given configuration
@@ -79,15 +70,9 @@ public:
   // Get the number of milliseconds the line has been detected continuosly.
   int lineDetectedTime();
 
-  // Returns true if a marker is detected by the sensor ID given.
-  bool isMarkerDetected(MarkerSensor sensorID);
-
   // This function reads the sensor and calculates the Derived IR sensor values below.
   // Should be called once per loop().
   void update();
-
-  // Reads and updates the marker sensor values 
-  void updateMarkers();
 
   void resetCalibration();
   
@@ -97,7 +82,6 @@ protected:
 
   // Raw IR sensor values
   Sensor m_sensors[IR_SENSOR_COUNT];
-  Sensor m_markers[MS_Count];
   
   // Derived IR sensor values
   int m_irAvg    = 0; // Average sensor value

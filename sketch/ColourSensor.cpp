@@ -4,6 +4,24 @@
 #define COLOURS2 A4
 #define COLOURS3 A3
 
+Colour getColour(int intensity)
+{
+  if (intensity < 12) {
+    return Col_Black;
+  }
+  else if (intensity >= 12 && intensity < 25) {
+    return Col_Green;
+  }
+  else if (intensity >= 25 && intensity < 35) {
+    return Col_Red;
+  }
+  else if (intensity >= 35) {
+    return Col_White;
+  }
+  
+  return Col_None;
+}
+
 ColourSensor::ColourSensor()
 {
   m_outPin = 15;
@@ -32,47 +50,7 @@ int ColourSensor::getIntensity() {
   return b;
 }
 
-Colour ColourSensor::getColour() const
-{
-  if (isRed())        return Col_Red;
-  else if (isGreen()) return Col_Green;
-  else if (isBlack()) return Col_Black;
-  else if (isWhite()) return Col_White;
-  else return Col_None;
-}
-
-bool ColourSensor::isDetected(Colour col) const
-{
-  switch (col)
-  {
-    case Col_Red:   return isRed();
-    case Col_Green: return isGreen();
-  }
-  
-  return false;
-}
-
 void ColourSensor::update()
 {
   m_intensity = getIntensity();
-}
-
-bool ColourSensor::isGreen() const
-{
-  return m_intensity > 8 && m_intensity < 20;
-}
-
-bool ColourSensor::isRed() const
-{
-  return m_intensity > 20 && m_intensity < 35;
-}
-
-bool ColourSensor::isWhite() const
-{
-  return m_intensity > 45;
-}
-
-bool ColourSensor::isBlack() const
-{
-  return m_intensity < 6;
 }

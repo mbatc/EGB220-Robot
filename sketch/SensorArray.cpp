@@ -2,12 +2,12 @@
 
 bool g_calibrateSensors = false;
 
-void SensorArray::Sensor::setPin(int pin) {
+void Sensor::setPin(int pin) {
   m_pin = pin;
   pinMode(m_pin, INPUT);
 }  
 
-int SensorArray::Sensor::read() {
+int Sensor::read() {
   m_rawValue = analogRead(m_pin);
 
   if (g_calibrateSensors)
@@ -23,15 +23,15 @@ int SensorArray::Sensor::read() {
   m_value = min(max(m_value, SENSOR_MIN), SENSOR_MAX);
 }
 
-void SensorArray::Sensor::resetCalibration() {
+void Sensor::resetCalibration() {
   m_min = 1024;
   m_max = 0;
 }
 
-int SensorArray::Sensor::getMin()      const { return m_min; }
-int SensorArray::Sensor::getMax()      const { return m_max; }
-int SensorArray::Sensor::getValue()    const { return m_value; }
-int SensorArray::Sensor::getValueRaw() const { return m_rawValue; }
+int Sensor::getMin()      const { return m_min; }
+int Sensor::getMax()      const { return m_max; }
+int Sensor::getValue()    const { return m_value; }
+int Sensor::getValueRaw() const { return m_rawValue; }
 
 bool SensorArray::setup(SensorConfig conf) {
   // Store the config settings
@@ -40,9 +40,6 @@ bool SensorArray::setup(SensorConfig conf) {
   // Setting IR receivers as inputs
   for (int i = 0; i < 8; i++)
     m_sensors[i].setPin(m_config.recvPins[i]);
-
-  m_markers[MS_Left].setPin(m_config.leftMarkerPin);
-  m_markers[MS_Right].setPin(m_config.rightMarkerPin);
 
   m_averageSampleCount = 1;
 }
@@ -53,17 +50,6 @@ void SensorArray::update() {
 }
 
 void SensorArray::updateLinePosition() {
-  // more debugging serial prints
-  // DEBUG_PRINT("ir array: [ ");
-  // for (Sensor &sensor : m_sensors) {
-  //   DEBUG_PRINT(sensor.getValue());
-  //   DEBUG_PRINT(" ");
-  // }
-  // DEBUG_PRINT("] ");
-  
-  // debugPrint("markers", m_markers[0].getValue(), m_markers[1].getValue());
-  // Serial.println();
-  
   // If a horizontal line is detected, keep doing what ya doing
   if (horizontalLineDetected()) {
     // debugPrint("Horizontal Detected");
@@ -92,11 +78,6 @@ void SensorArray::updateLinePosition() {
   }
   m_linePosition /= totalWeight; // Calculate the weighted average.
   rollingAverage(&m_averageLinePosition, m_linePosition, m_averageSampleCount);
-}
-
-void SensorArray::updateMarkers() {
-  for (Sensor &marker : m_markers)
-    marker.read();
 }
 
 void SensorArray::updateSensorValues() {
@@ -133,16 +114,9 @@ void SensorArray::updateSensorValues() {
   m_lastUpdateMilli = currentTime; // Store the current time (will be used in the call to this function).
 }
 
-bool SensorArray::isMarkerDetected(MarkerSensor sensorID)
-{
-  return m_markers[sensorID].getValue() < 35;
-}
-
 void SensorArray::resetCalibration()
 {
   for (Sensor &sensor : m_sensors)
-    sensor.resetCalibration();
-  for (Sensor &sensor : m_markers)
     sensor.resetCalibration();
 }
 
