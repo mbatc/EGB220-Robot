@@ -25,7 +25,11 @@ protected:
   // Buffer of data to recieve
   StringStream m_recvBuffer;
 
+  // Communication states
   bool m_commandReady = false;
+  bool m_recieving = false;
+
+  // The command set available through the bluetooth interface
   SerialCommands m_commands;
 };
 

@@ -1,5 +1,7 @@
 #include "Util.h"
 
+void * operator new (unsigned int, void * ptr) { return ptr; }
+
 double mapf(double x, double inMin, double inMax, double outMin, double outMax)
 {
   return ((x - inMin) / (inMax - inMin)) * (outMax - outMin) + outMin;

@@ -1,14 +1,16 @@
 #include "SensorArray.h"
 
-void SensorArray::Sensor::setPin(int pin) {
+bool g_calibrateSensors = false;
+
+void Sensor::setPin(int pin) {
   m_pin = pin;
   pinMode(m_pin, INPUT);
 }  
 
-int SensorArray::Sensor::read() {
+int Sensor::read() {
   m_rawValue = analogRead(m_pin);
 
-  if (m_calibrating)
+  if (g_calibrateSensors)
   { // Update the range of sensor values
     m_min = min(m_min, m_rawValue);
     m_max = max(m_max, m_rawValue);
@@ -21,30 +23,20 @@ int SensorArray::Sensor::read() {
   m_value = min(max(m_value, SENSOR_MIN), SENSOR_MAX);
 }
 
-void SensorArray::Sensor::resetCalibration() {
+void Sensor::resetCalibration() {
   m_min = 1024;
   m_max = 0;
 }
 
-void SensorArray::Sensor::setCalibrating(bool calibrating) {
-  if (!m_calibrating && calibrating)
-    resetCalibration();
-  m_calibrating = calibrating;
-}
-
-int SensorArray::Sensor::getMin()      const { return m_min; }
-int SensorArray::Sensor::getMax()      const { return m_max; }
-int SensorArray::Sensor::getValue()    const { return m_value; }
-int SensorArray::Sensor::getValueRaw() const { return m_rawValue; }
+int Sensor::getMin()      const { return m_min; }
+int Sensor::getMax()      const { return m_max; }
+int Sensor::getValue()    const { return m_value; }
+int Sensor::getValueRaw() const { return m_rawValue; }
 
 bool SensorArray::setup(SensorConfig conf) {
   // Store the config settings
   m_config = conf;
-  
-  // Setting pins as inputs or outputs depending on what they are
-  pinMode(m_config.emitPin, OUTPUT);
-  digitalWrite(m_config.emitPin, HIGH);
-  
+    
   // Setting IR receivers as inputs
   for (int i = 0; i < 8; i++)
     m_sensors[i].setPin(m_config.recvPins[i]);
@@ -58,27 +50,15 @@ void SensorArray::update() {
 }
 
 void SensorArray::updateLinePosition() {
-  // more debugging serial prints
-  // DEBUG_PRINT("     ir receiver values:");
-  // for (Sensor &sensor : m_sensors) {
-  //   DEBUG_PRINT("  ");
-  //   DEBUG_PRINT(sensor.getValue());
-  // }
-  
-  // DEBUG_PRINT("    Sensor Avg: ");
-  // DEBUG_PRINT(m_irAvg);
-  // DEBUG_PRINT("    Sensor Std-Dev: ");
-  // DEBUG_PRINT(m_irStdDev);
-
   // If a horizontal line is detected, keep doing what ya doing
   if (horizontalLineDetected()) {
-    DEBUG_PRINT("    Horizontal Detected");
+    // debugPrint("Horizontal Detected");
     return;
   }
   
   // If no line is detected, keep doing what ya doing
   if (!lineDetected()) {
-    DEBUG_PRINT("    No Line Detected");
+    // debugPrint("No Line Detected");
     return;
   }
 
@@ -132,17 +112,16 @@ void SensorArray::updateSensorValues() {
     m_lineDetectedMilli = 0;
   }
   m_lastUpdateMilli = currentTime; // Store the current time (will be used in the call to this function).
-  
-  DEBUG_PRINT("    Detected Time: ");
-  DEBUG_PRINT(m_lineDetectedMilli);
-  DEBUG_PRINT("    Missing Time: ");
-  DEBUG_PRINT(m_lineMissingMilli);
 }
 
-double SensorArray::getLinePos()    { return m_averageLinePosition / (IR_SENSOR_COUNT - 1); }
-double SensorArray::getLinePosRaw() { return m_linePosition / (IR_SENSOR_COUNT - 1); }
+void SensorArray::resetCalibration()
+{
+  for (Sensor &sensor : m_sensors)
+    sensor.resetCalibration();
+}
 
-void SensorArray::setAverageSampleCount(int sampleCount) { m_averageSampleCount = sampleCount; }
+double SensorArray::getLinePos()    { return m_linePosition / (IR_SENSOR_COUNT - 1); }
+
 bool SensorArray::lineDetected() { return m_irStdDev > m_config.detectThreshold; }
 bool SensorArray::horizontalLineDetected() { return !lineDetected() && m_irAvg < 100; }
 

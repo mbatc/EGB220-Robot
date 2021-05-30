@@ -8,14 +8,14 @@ class TrackMap
 public:
   enum SectionType
   {
-    ST_Straight,
-    ST_Turn
+    ST_Straight = 0,
+    ST_LTurn    = 1,
+    ST_RTurn    = 2
   };
 
   struct Section
   {
     SectionType type; // Type of section
-    float targetSpeed; // Target speed for the section
     uint32_t time;  // Time taken to complete the section
   };
 
@@ -23,9 +23,6 @@ public:
   // The type of section is determined from the average difference
   // in motor speed for the section.
   void addSection(int avgMotorDiff, uint32_t length);
-
-  // Get the target speed for a section of the track
-  float sectionSpeed(size_t index);
 
   // Get the time taken to complete the section of track
   uint32_t sectionLength(size_t index);
@@ -39,7 +36,5 @@ public:
 private:
   List<Section> m_sections;
 };
-
-extern TrackMap g_trackMap;
 
 #endif // TrackMap_h__

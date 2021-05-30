@@ -18,12 +18,9 @@ void SerialCommands::readToken(Stream *pStream)
 {
   m_lastToken = ""; // Clear the token
   bool found = false;  
-  while (true) {
-    // Read bytes until we find a whitespace character
-    if (!pStream->available()) {
-      continue;
-    }
-    
+
+  // Read bytes until we find a whitespace character
+  while (pStream->available()) {
     int c = pStream->read();
     if (strchr(whitespace, (char)c) != 0) {
       if (!found) {
@@ -31,7 +28,7 @@ void SerialCommands::readToken(Stream *pStream)
       }
       break;
     }
-
+    
     // Append characters to the token
     m_lastToken += (char)c;
     found = true;
@@ -55,6 +52,7 @@ ResultType SerialCommands::execute()
     return RT_None;
   
   readToken(m_pIn);
+  Serial.println("Read Token");
   if (m_lastToken.equalsIgnoreCase(callToken)) {    
     return executeCall();
   }

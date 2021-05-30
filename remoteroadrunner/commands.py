@@ -3,41 +3,50 @@ import queue
 import asyncio
 import bluetooth
 import imgui
+from message import Message
 
-class CommandContext:
+class RoadRunnerContext:
   def __init__(self, app):
     self.commands = [  ]
     self.variables = {  }
     self.bt = None
     self.get_queue = queue.Queue()
     self.app = app
+    self.track_details = []
+    self.lap_times     = []
 
-  def __bt_response_handler(self, msg):
-    if serial_interface.response_is_lscmd(msg):
-      self.handle_command_list(msg)
-    elif serial_interface.response_is_lsvar(msg):
-      self.handle_variable_list(msg)
-    elif serial_interface.response_is_type(msg):
-      self.handle_type(msg)
-    elif serial_interface.response_is_get(msg):
-      self.handle_get(msg)
-    self.app.log([ "BT Recv: ", msg.strip()], [imgui.Vec4(0.3, 0.8, 0.3, 1), None])
+  # self.app.log([ "BT Recv: ", msg.strip()], [imgui.Vec4(0.3, 0.8, 0.3, 1), None])
 
   def connect(self, address):
     # Create the connection
-    self.bt = bluetooth.Connection(address)
-    self.bt.set_response_handler(self.__bt_response_handler)
+    self.bt = bluetooth.Connection(self.app, address)
+    self.bt.set_response_handler(self.__bt_message_handler)
+
     # Return the connect task
     return self.bt.get_connect_task()
 
+  def handle_incoming(self):
+    if self.bt != None:
+      self.bt.handle_messages()
+
+  def __bt_message_handler(self, recieved):
+    if serial_interface.is_new_track(recieved):
+      self.track_details = []
+    elif serial_interface.is_track_section(recieved):
+      self.track_details.append(serial_interface.parse_track_section(recieved))
+    elif serial_interface.is_lap_time(recieved):
+      self.lap_times.append(serial_interface.parse_lap_time(recieved))
+    else:
+      self.app.log('Unhandled BT Message: ' + str(recieved))
+
+  def get_lap_times(self):
+    return self.lap_times
+
+  def get_track_details(self):
+    return self.track_details
+
   def is_connected(self):
     return self.bt != None and self.bt.connected
-
-  def call_command(self, name):
-    '''
-    Call a command on the device
-    '''
-    self.send(serial_interface.call_command(name))
 
   def get_commands(self):
     return self.commands
@@ -54,15 +63,24 @@ class CommandContext:
     '''
     return self.variables[name]
 
-  def set_var(self, name, value):
+  def set_var(self, name, value, force=False):
     '''
     Set the local value of a variable
     '''
     if (type(self.variables[name]) == type(value)):
       sync = self.variables[name] != value
       self.variables[name] = value
-      if sync:
+      if sync or force:
         self.sync_var(name, True)
+
+  def call_command(self, name):
+    '''
+    Call a command on the device
+    '''
+    self.send(
+      Message(serial_interface.call_command(name))
+        .on_response(lambda packet, response : None)
+    )
 
   def sync_var(self, name, apply=False):
     '''
@@ -73,33 +91,47 @@ class CommandContext:
     if apply:
       if name not in self.variables:
         return
-      message = serial_interface.set_var(name, self.variables[name])
-      self.send(message)
+      self.send(
+        Message(serial_interface.set_var(name, self.variables[name]))
+          .on_response(lambda sent, response: None)
+      )
     else:
-      message = serial_interface.get_var(name)
-      self.send(message)
+      self.send(
+        Message(serial_interface.get_var(name))
+          .on_response(self.handle_get)
+      )
 
   def sync_command_list(self):
     '''
     Fetch the command list from the device
     '''
-    self.send(serial_interface.list_commands())
+    self.send(
+      Message(serial_interface.list_commands())
+        .on_response(self.handle_command_list)
+    )
 
   def sync_variable_list(self):
     '''
     Fetch the variable list from the device
     '''
-    self.send(serial_interface.list_vars())
+    self.send(
+      Message(serial_interface.list_vars())
+        .on_response(self.handle_variable_list)
+    )
 
-  def handle_command_list(self, message):
-    self.commands = serial_interface.parse_response_lscmd(message)
+  def handle_command_list(self, sent, response):
+    self.commands = serial_interface.parse_response_lscmd(response)
 
-  def handle_variable_list(self, message):
+
+  def handle_variable_list(self, sent, response):
+    if not serial_interface.response_is_lsvar(response):
+      return
+
     added = []
     existing = []
 
     # Added missing variables
-    for var_def in serial_interface.parse_response_lsvar(message):
+    for var_def in serial_interface.parse_response_lsvar(response):
       name = var_def["name"]
       var_type = var_def["type"]
 
@@ -125,20 +157,18 @@ class CommandContext:
       self.sync_var(var)
 
       
-  def handle_get(self, message):
+  def handle_get(self, sent, response):
     try:
-      var_name, value = serial_interface.parse_response_get(message)
+      var_name, value = serial_interface.parse_response_get(response)
       self.variables[var_name] = value
     except Exception as e:
       print("Failed to get variable: {0}".format(e))
 
-  def handle_type(self, message):
-    value = serial_interface.parse_response_type(message)
-
   def send(self, message):
     if self.bt == None:
+      self.app.log([ "Failed to Send:", "Not Connected", "{" + str(message.packet) + "}" ], [imgui.Vec4(0.8, 0.3, 0.3, 1), None, imgui.Vec4(0.3, 0.8, 0.3, 1)])
       return False
 
-    self.app.log([ "BT Send: ", message.strip()], [imgui.Vec4(0.3, 0.3, 0.8, 1), None])
-    self.app.task_queue.enqueue(self.bt.send(message))
+    self.app.log([ "BT Send: ", str(message.packet)], [imgui.Vec4(0.3, 0.3, 0.8, 1), None])
+    self.bt.enqueue_message(message)
     return True
