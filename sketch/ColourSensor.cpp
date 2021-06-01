@@ -4,24 +4,6 @@
 #define COLOURS2 A4
 #define COLOURS3 A3
 
-Colour getColour(int intensity)
-{
-  if (intensity < 12) {
-    return Col_Black;
-  }
-  else if (intensity >= 12 && intensity < 25) {
-    return Col_Green;
-  }
-  else if (intensity >= 25 && intensity < 35) {
-    return Col_Red;
-  }
-  else if (intensity >= 35) {
-    return Col_White;
-  }
-  
-  return Col_None;
-}
-
 ColourSensor::ColourSensor()
 {
   m_outPin = 15;

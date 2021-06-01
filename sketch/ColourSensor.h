@@ -4,14 +4,11 @@
 enum Colour
 {
   Col_None,
-  Col_Red,
-  Col_Green,
+  Col_Colour,
   Col_White,
   Col_Black,
   Col_Count
 };
-
-Colour getColour(int intensity);
 
 class ColourSensor
 {

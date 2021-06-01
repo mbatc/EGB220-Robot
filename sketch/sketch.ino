@@ -30,6 +30,7 @@ volatile unsigned long int markerMissingTime = 0;
 volatile bool   markerIsDetected  = false;
 
 bool   driving        = false; // Is the motor currently driving
+bool   inSlowZone     = false;
 bool   allowDrive     = true;  // Can the robot start driving
 int    straightSpeed  = 170;   // The speed for the straights
 int    cornerSpeed    = 150;    // The speed for the corners
@@ -41,19 +42,22 @@ int    acceleration   = 10;    // How fast does the robot accelerate
 int    lapStopTime    = 4000;  // How many milliseconds to stop for between laps
 int    colDetectThreshold = 10; // How many consecutive times a colour should be detected before taking action
 int    stopDelay      = 0;
+int    colourDetectLoops = 10;
+Colour detectedColour = Col_None;
 
 // Control system parameters
-double kp = 4.5; // Proportional control
-double ki = 0;   // Integral control
-double kd = 90;  // Derivative control
+double kp = 4.5;           // Proportional control
+double ki = 0;             // Integral control
+double kd = 90;            // Derivative control
 double PIDScaleFactor = 4; // this value adjusts how sensitive the PID correction is on the turning
 
 // Average wheel speed difference
-double avgSpeedDiff = 0;       // Average difference in motor speed
-double avgSmoothing = 2;       // Exponential average smoothing
-int speedDiffSamples = 10;     // Number of samples to include in the average 
+double avgSpeedDiff = 0;     // Average difference in motor speed
+double avgSmoothing = 2;     // Exponential average smoothing
+int speedDiffSamples = 10;   // Number of samples to include in the average 
 double speedUpThreshold = 1; // The percentage motor difference to threshold to consider the track straight.
 int straightLoops = 0;
+
 // Current control system correction value
 float correction = 0;
 
@@ -101,7 +105,8 @@ Commands::VarDef cmdVars[] = {
   { "acl",      acceleration },
   { "spdUpThr", speedUpThreshold },
   { "stopDelay", stopDelay },
-  { "sampleFreq", samplingFrequency }
+  { "sampleFreq", samplingFrequency },
+  { "colDtcLps", colourDetectLoops}
 };
 
 // Expose functions to the command interface
@@ -151,6 +156,8 @@ void setup() {
     pinMode(motors_R, OUTPUT);
     pinMode(motors_L, OUTPUT);
   }
+
+  pinMode(13, OUTPUT);
   
   pidController.setTarget(0.5);
 
@@ -167,14 +174,28 @@ void setup() {
   leftTrackSensor.setPin(23);
 }
 
+Colour getColour(int intensity)
+{
+  if (intensity < 150) {
+    return Col_Black;
+  }
+  else if (intensity >= 800) {
+    return Col_White;
+  }
+  else {
+    return Col_Colour;
+  }
+}
+
 void attachInterrupts() {
-  Interrupts::attach(2, samplingFrequency, detectRightMarker);
-  Interrupts::attach(1, samplingFrequency, detectLeftMarker);
+
+// Interrupts::attach(2, samplingFrequency, detectRightMarker);
+// Interrupts::attach(1, samplingFrequency, detectLeftMarker);
 }
 
 void detachInterrupts() {
-  Interrupts::detach(2);
-  Interrupts::detach(1);
+//   Interrupts::detach(2);
+//   Interrupts::detach(1);
 }
 
 // This function takes a speed for each motor and sets their pins.
@@ -309,11 +330,9 @@ void onLapBreak() {
 
 void detectRightMarker()
 {
-  static const int detectThreshold = 200;
+  static const int detectThreshold = 100;
   
-  rightTrackSensor.read();
-  
-  markerValue = ((markerValue * (3 - 1)) + rightTrackSensor.getValue()) / 3; 
+  markerValue = rightTrackSensor.getValue(); // ((markerValue * (3 - 1)) + ) / 3; 
   markerIsDetected = markerValue < detectThreshold;
   
   if (!markerWasDetected && markerIsDetected) {
@@ -330,12 +349,18 @@ void detectRightMarker()
 
 void detectLeftMarker()
 {
-  colourSensor.update();
-  unsigned int intensity = colourSensor.getIntensity();
+  static int numSame = 0;
+  unsigned int intensity = leftTrackSensor.getValue();
   if (intensity > colourIntensity)
   {
     colourIntensity = intensity;
-    lastColourChange = millis();
+    numSame = 0;
+  }
+  else
+  {
+    if (numSame > colourDetectLoops)
+      detectedColour = getColour(colourIntensity);
+    numSame++;
   }
 }
 
@@ -393,10 +418,6 @@ void loop() {
   // reads/writes data from the module and processes commands
   bt.update();
 
-  leftTrackSensor.read();
-  debugPrint("L Mrkr", leftTrackSensor.getValue());
-  Serial.println();
-  
   // Am having a weird issue where the left motor direction reverts to backwards even though I've set it to forwards
   // Setting to forwards every loop seems to fix it for now though
   pinMode(17, OUTPUT);
@@ -404,6 +425,8 @@ void loop() {
  
   // Update sensor array and calculate line position
   sensorArray.update();
+  leftTrackSensor.read();
+  rightTrackSensor.read();
 
   if (g_calibrateSensors)
   {
@@ -420,40 +443,59 @@ void loop() {
     pidController.setP(kp);
     pidController.setI(ki);
     pidController.setD(kd);
+    
+    if (inStraight) {
+      digitalWrite(13, HIGH);
+    }
+    else {
+      digitalWrite(13, LOW);
+    }
 
     // Drive the robot
     drive();
 
+    detectRightMarker();
+    detectLeftMarker();
+
     debugPrint("Colour Intensity", colourIntensity);
+    debugPrint("Colour", detectedColour);
+    debugPrint("Prev Colour", lastCol);
     debugPrint("Marker", markerValue);
     
-    Colour col = getColour(colourIntensity);
-    if (millis() - lastColourChange > 10) { // Read colour
-      if (col != lastCol) {
-        debugPrint("Reading Colour", colourIntensity, col);
+    if (detectedColour != Col_None) { // Read colour
+      if (detectedColour != lastCol) {
+        bt.print(detectedColour);
+        bt.write(0);
+        
+        debugPrint("Reading Colour", colourIntensity, detectedColour);
         if (lastCol == Col_Black) {
-          if (col == Col_Green) {
-            onEnterSlowZone();
+          if (detectedColour == Col_Colour) {
+            if (inSlowZone) {
+              onEnterSlowZone();
+            }
+            else {
+              onExitSlowZone();
+            }
+            
+            inSlowZone = !inSlowZone;
           }
-          else if (col == Col_Red) {
-            onExitSlowZone();
-          }
-          else if (col == Col_White && !markerWasDetected) {
+          else if (detectedColour == Col_White && !markerWasDetected) {
             onEnterCorner();
           }
         }
       }
       
-      lastCol          = col;
+      lastCol          = detectedColour;
       lastColourChange = millis();
       colourIntensity  = 0;
+      detectedColour   = Col_None;
     }
     
-    markerWasDetected &= col == Col_Black;
+    markerWasDetected &= colourIntensity < 200;
     
     debugPrint("R Mrkr", markerMissingTime, markerWasDetected, markerWasMissing, canDetectMarker);
     
-    if (millis() - markerMissingTime > 50 && markerWasDetected && canDetectMarker) {
+    if (millis() - markerMissingTime > 200 && markerWasDetected && canDetectMarker) {
       
       if (!lapStarted) {
         onLapStart();
