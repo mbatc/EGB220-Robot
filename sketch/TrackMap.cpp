@@ -24,3 +24,7 @@ TrackMap::SectionType TrackMap::sectionType(size_t index) {
 size_t TrackMap::sectionCount() {
   return m_sections.size();
 }
+
+void TrackMap::clear() {
+  m_sections.clear();
+}

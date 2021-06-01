@@ -17,11 +17,6 @@ char const * TypeName(...)      { return "none"; }
 
 char const * whitespace = " \n\r\t";
 
-void rollingAverage(double *pAverage, double newSample, int nSamples)
-{
-  *pAverage = ((*pAverage * (nSamples - 1)) + newSample) / nSamples;
-}
-
 void expMovingAverage(double *pAverage, double newSample, int nSamples, double smoothing)
 {
   *pAverage = newSample * (smoothing / (1 + nSamples)) + (*pAverage) * (1 - (smoothing / (1 + nSamples)));

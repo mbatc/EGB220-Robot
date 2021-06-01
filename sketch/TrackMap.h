@@ -33,6 +33,9 @@ public:
   // Get the number of sections
   size_t sectionCount();
 
+  // Clear the track map data
+  void clear();
+
 private:
   List<Section> m_sections;
 };

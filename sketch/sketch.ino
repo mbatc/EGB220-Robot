@@ -37,21 +37,21 @@ int    slowSpeed      = 60;    // The speed for the slow zone
 bool   inStraight     = false; // Is the robot in a straight track section
 bool   allowAccell    = false; // Can the robot accelerate
 int    curMotorSpeed  = cornerSpeed; // Setup the initial motor speed to be the cornering speed
+int    curMotorDiff   = 0;
 int    acceleration   = 10;    // How fast does the robot accelerate
 int    lapStopTime    = 4000;  // How many milliseconds to stop for between laps
 int    colDetectThreshold = 10; // How many consecutive times a colour should be detected before taking action
 int    stopDelay      = 0;
 
 // Control system parameters
-double kp = 4.5; // Proportional control
-double ki = 0;   // Integral control
-double kd = 90;  // Derivative control
+double kp = 4.5;           // Proportional control
+double ki = 0;             // Integral control
+double kd = 90;            // Derivative control
 double PIDScaleFactor = 4; // this value adjusts how sensitive the PID correction is on the turning
 
 // Average wheel speed difference
-double avgSpeedDiff = 0;       // Average difference in motor speed
-double avgSmoothing = 2;       // Exponential average smoothing
-int speedDiffSamples = 10;     // Number of samples to include in the average 
+int avgSpeedDiff = 0;        // Average difference in motor speed
+int speedDiffSamples = 10;   // Number of samples to include in the average 
 double speedUpThreshold = 1; // The percentage motor difference to threshold to consider the track straight.
 int straightLoops = 0;
 // Current control system correction value
@@ -62,6 +62,12 @@ bool lapStarted = false;
 unsigned long lapStartTime = 0;
 unsigned long lapFinishTime = 0;
 unsigned long stopTime = 0;
+
+// Current section details
+unsigned long sectionStartTime = 0;
+long sectionAvgMotorSpeed      = 0;
+long sectionAvgMotorDiff       = 0;
+int  sectionSampleCount        = 0;
 
 unsigned int samplingFrequency = 500;
 
@@ -183,9 +189,6 @@ void applyMotorSpeed(int leftMotor, int rightMotor) {
 int motorSpeed_L = 0; // Speed of the left motor
 int motorSpeed_R = 0; // Speed of the right motor
 
-long segmentMotorDiff = 0;
-int  segmentLoops     = 0;
-
 void onStartDriving()
 {
   Serial.println("Start Driving");
@@ -248,6 +251,7 @@ void onLapStart()
   Serial.println("Start Lap");
   lapStartTime = millis();
   lapStarted  = true;
+  trackMap.clear();
 }
 
 void onLapEnd()
@@ -255,7 +259,7 @@ void onLapEnd()
   lapFinishTime = millis();
   stopTime = lapFinishTime + stopDelay;  
   debugPrint("End Lap: ", lapFinishTime + stopDelay);
-  lapStarted = false;
+  lapStarted = false;  
   Serial.println();
 }
 
@@ -264,6 +268,19 @@ void onEnterSlowZone() {
   inStraight    = true;
   allowAccell   = false;
   curMotorSpeed = slowSpeed;
+}
+
+void onTrackMarker() {
+  sectionAvgMotorSpeed /= max(1, sectionSampleCount);
+  sectionAvgMotorDiff  /= max(1, sectionSampleCount);
+  
+  // trackMap.addSection(sectionAvgMotorDiff, (millis() - sectionStartTime) / max(1, sectionAvgMotorSpeed)); 
+  
+  sectionStartTime     = millis();
+  sectionSampleCount   = 0;
+  sectionAvgMotorSpeed = 0;
+  sectionAvgMotorDiff  = 0;
+  debugPrint("Added Track Section");
 }
 
 void onExitSlowZone() {
@@ -296,7 +313,10 @@ void onLapBreak() {
  
   // Calculate the remaining wait time.
   long delayTime = lapStopTime - (millis() - startTime);
-
+  
+  debugPrint("Delay Time", delayTime);
+  Serial.println();
+  
   if (delayTime > 0)
     delay(delayTime);
 
@@ -359,9 +379,14 @@ void drive() {
     // Clamp calculated speeds between the min/max speeds given to the function
     motorSpeed_R = min(curMotorSpeed, max(0, motorSpeed_R));
     motorSpeed_L = min(curMotorSpeed, max(0, motorSpeed_L));
+
+    int motorDiff = motorSpeed_L - motorSpeed_R;
+    sectionAvgMotorSpeed += (motorSpeed_L + motorSpeed_R) / 2;
+    sectionAvgMotorDiff  += motorDiff;
+    sectionSampleCount   += 1;
     
     // Calculate an exponential moving average for the motor speed difference.
-    expMovingAverage(&avgSpeedDiff, motorSpeed_L - motorSpeed_R, speedDiffSamples, avgSmoothing);
+    movingAverage(&avgSpeedDiff, motorDiff, speedDiffSamples);
     float diffFactor = abs(avgSpeedDiff) / (float)curMotorSpeed;
 
     if (diffFactor < speedUpThreshold)
@@ -433,6 +458,10 @@ void loop() {
           }
           else if (col == Col_White && !markerWasDetected) {
             onEnterCorner();
+          }
+
+          if (col != Col_Black) {
+            onTrackMarker();
           }
         }
       }

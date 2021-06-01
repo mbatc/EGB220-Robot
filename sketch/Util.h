@@ -94,7 +94,13 @@ char const * TypeName(bool*);
 
 template<typename T> char const * TypeName() { return TypeName((T*)0); }
 
-void rollingAverage(double *pAverage, double newSample, int nSamples);
+template<typename T>
+void movingAverage(T *pAverage, T newSample, int nSamples)
+{
+  *pAverage = ((*pAverage * (nSamples - 1)) + newSample) / nSamples;
+}
+
+
 void expMovingAverage(double *pAverage, double newSample, int nSamples, double smoothing);
 
 template<typename T>

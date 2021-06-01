@@ -77,7 +77,7 @@ void SensorArray::updateLinePosition() {
     totalWeight += weight;        // Sum the weights so we can divide by the total later
   }
   m_linePosition /= totalWeight; // Calculate the weighted average.
-  rollingAverage(&m_averageLinePosition, m_linePosition, m_averageSampleCount);
+  movingAverage(&m_averageLinePosition, m_linePosition, m_averageSampleCount);
 }
 
 void SensorArray::updateSensorValues() {
