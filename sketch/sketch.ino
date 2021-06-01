@@ -5,14 +5,12 @@
 #include "SoftwareSerial.h"
 #include "PIDController.h"
 #include "Bluetooth.h"
-#include "ColourSensor.h"
 #include "List.h"
 #include "TrackMap.h"
 #include "Interrupts.h"
 
 SensorArray   sensorArray; // Sensor array object. Handles reading sensors and calculating line position
 PIDController pidController;
-ColourSensor  colourSensor;
 TrackMap      trackMap;
 
 const int motors_R     = 3;          // Right motor pin
@@ -23,24 +21,24 @@ volatile int           colourIntensity  = 0;
 volatile unsigned long lastColourChange = 0;
 
 volatile unsigned long markerDetectTime = 0;
+volatile unsigned long markerMissingTime = 0;
 volatile int    markerValue = 0;
 volatile bool   markerWasDetected = false;
 volatile bool   markerWasMissing  = false;
-volatile unsigned long int markerMissingTime = 0;
 volatile bool   markerIsDetected  = false;
 
-bool   driving        = false; // Is the motor currently driving
-bool   inSlowZone     = false;
-bool   allowDrive     = true;  // Can the robot start driving
-int    straightSpeed  = 170;   // The speed for the straights
-int    cornerSpeed    = 150;    // The speed for the corners
-int    slowSpeed      = 60;    // The speed for the slow zone
-bool   inStraight     = false; // Is the robot in a straight track section
-bool   allowAccell    = false; // Can the robot accelerate
+bool   driving        = false;       // Is the motor currently driving
+bool   inSlowZone     = false;       // Are we in a slow zone
+bool   allowDrive     = true;        // Can the robot start driving
+int    straightSpeed  = 170;         // The speed for the straights
+int    cornerSpeed    = 150;         // The speed for the corners
+int    slowSpeed      = 60;          // The speed for the slow zone
+bool   inStraight     = false;       // Is the robot in a straight track section
+bool   allowAccell    = false;       // Can the robot accelerate
 int    curMotorSpeed  = cornerSpeed; // Setup the initial motor speed to be the cornering speed
-int    acceleration   = 10;    // How fast does the robot accelerate
-int    lapStopTime    = 4000;  // How many milliseconds to stop for between laps
-int    colDetectThreshold = 10; // How many consecutive times a colour should be detected before taking action
+int    acceleration   = 10;          // How fast does the robot accelerate
+int    lapStopTime    = 4000;        // How many milliseconds to stop for between laps
+int    colDetectThreshold = 10;      // How many consecutive times a colour should be detected before taking action
 int    stopDelay      = 0;
 int    colourDetectLoops = 10;
 Colour detectedColour = Col_None;
@@ -52,11 +50,11 @@ double kd = 90;            // Derivative control
 double PIDScaleFactor = 4; // this value adjusts how sensitive the PID correction is on the turning
 
 // Average wheel speed difference
-double avgSpeedDiff = 0;     // Average difference in motor speed
-double avgSmoothing = 2;     // Exponential average smoothing
-int speedDiffSamples = 10;   // Number of samples to include in the average 
-double speedUpThreshold = 1; // The percentage motor difference to threshold to consider the track straight.
-int straightLoops = 0;
+double avgSpeedDiff     = 0;  // Average difference in motor speed
+double avgSmoothing     = 2;  // Exponential average smoothing
+double speedUpThreshold = 1;  // The percentage motor difference to threshold to consider the track straight.
+int    speedDiffSamples = 10; // Number of samples to include in the average 
+int    straightLoops    = 0;
 
 // Current control system correction value
 float correction = 0;
@@ -66,6 +64,12 @@ bool lapStarted = false;
 unsigned long lapStartTime = 0;
 unsigned long lapFinishTime = 0;
 unsigned long stopTime = 0;
+
+// Current section details
+unsigned long sectionStartTime = 0;
+long sectionAvgMotorSpeed      = 0;
+long sectionAvgMotorDiff       = 0;
+int  sectionSampleCount        = 0;
 
 unsigned int samplingFrequency = 500;
 
@@ -85,13 +89,8 @@ void endCalibration() {
   g_calibrateSensors = false;
 }
 
-void startDriving() {
-  allowDrive = true;
-}
-
-void stopDriving() {
-  allowDrive = false;
-}
+void startDriving() { allowDrive = true; }
+void stopDriving()  { allowDrive = false; }
 
 // Expose variables to the command interface
 Commands::VarDef cmdVars[] = {
@@ -130,11 +129,7 @@ void setup() {
   Serial.begin(9600);
 
   // Configuration for the IR sensor array
-  SensorConfig sensorConf = {
-    // Marker sensor pins
-    // .leftMarkerPin = 23,
-    // .rightMarkerPin = 22,
-    
+  SensorConfig sensorConf = {    
     // IR Sensor Pins
     // .recvPins = { 15, 2, 1, 0, 8, 7, 29, 6 },
     .recvPins = { 2, 1, 0, 8, 7, 29 },
@@ -160,16 +155,6 @@ void setup() {
   pinMode(13, OUTPUT);
   
   pidController.setTarget(0.5);
-
-  trackMap.addSection(0, 10);
-  trackMap.addSection(30, 10);
-  trackMap.addSection(0, 10);
-  trackMap.addSection(30, 10);
-  trackMap.addSection(0, 10);
-  trackMap.addSection(30, 10);
-  trackMap.addSection(0, 10);
-  trackMap.addSection(30, 10);
-
   rightTrackSensor.setPin(22);
   leftTrackSensor.setPin(23);
 }
@@ -188,14 +173,13 @@ Colour getColour(int intensity)
 }
 
 void attachInterrupts() {
-
-// Interrupts::attach(2, samplingFrequency, detectRightMarker);
-// Interrupts::attach(1, samplingFrequency, detectLeftMarker);
+  // Interrupts::attach(2, samplingFrequency, detectRightMarker);
+  // Interrupts::attach(1, samplingFrequency, detectLeftMarker);
 }
 
 void detachInterrupts() {
-//   Interrupts::detach(2);
-//   Interrupts::detach(1);
+  // Interrupts::detach(2);
+  // Interrupts::detach(1);
 }
 
 // This function takes a speed for each motor and sets their pins.
@@ -206,9 +190,6 @@ void applyMotorSpeed(int leftMotor, int rightMotor) {
 
 int motorSpeed_L = 0; // Speed of the left motor
 int motorSpeed_R = 0; // Speed of the right motor
-
-long segmentMotorDiff = 0;
-int  segmentLoops     = 0;
 
 void onStartDriving()
 {
@@ -272,6 +253,7 @@ void onLapStart()
   Serial.println("Start Lap");
   lapStartTime = millis();
   lapStarted  = true;
+  trackMap.clear();
 }
 
 void onLapEnd()
@@ -288,6 +270,19 @@ void onEnterSlowZone() {
   inStraight    = true;
   allowAccell   = false;
   curMotorSpeed = slowSpeed;
+}
+
+void onTrackMarker() {
+  sectionAvgMotorSpeed /= max(1, sectionSampleCount);
+  sectionAvgMotorDiff  /= max(1, sectionSampleCount);
+  
+  trackMap.addSection(sectionAvgMotorDiff, (millis() - sectionStartTime) / max(1, sectionAvgMotorSpeed)); 
+  
+  sectionStartTime     = millis();
+  sectionSampleCount   = 0;
+  sectionAvgMotorSpeed = 0;
+  sectionAvgMotorDiff  = 0;
+  debugPrint("Added Track Section");
 }
 
 void onExitSlowZone() {
@@ -387,9 +382,14 @@ void drive() {
     // Clamp calculated speeds between the min/max speeds given to the function
     motorSpeed_R = min(curMotorSpeed, max(0, motorSpeed_R));
     motorSpeed_L = min(curMotorSpeed, max(0, motorSpeed_L));
+
+    int motorDiff = motorSpeed_L - motorSpeed_R;
+    sectionAvgMotorSpeed += (motorSpeed_L + motorSpeed_R) / 2;
+    sectionAvgMotorDiff  += motorDiff;
+    sectionSampleCount   += 1;
     
     // Calculate an exponential moving average for the motor speed difference.
-    expMovingAverage(&avgSpeedDiff, motorSpeed_L - motorSpeed_R, speedDiffSamples, avgSmoothing);
+    rollingAverage(&avgSpeedDiff, motorDiff, speedDiffSamples);
     float diffFactor = abs(avgSpeedDiff) / (float)curMotorSpeed;
 
     if (diffFactor < speedUpThreshold)
@@ -481,6 +481,10 @@ void loop() {
           }
           else if (detectedColour == Col_White && !markerWasDetected) {
             onEnterCorner();
+          }
+
+          if (detectedColour != Col_Black) {
+            onTrackMarker();
           }
         }
       }

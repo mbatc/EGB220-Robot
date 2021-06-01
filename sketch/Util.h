@@ -126,4 +126,13 @@ inline void debugPrint(char const *name)
   DEBUG_PRINT(" ");
 }
 
+enum Colour
+{
+  Col_None,
+  Col_Colour,
+  Col_White,
+  Col_Black,
+  Col_Count
+};
+
 #endif
