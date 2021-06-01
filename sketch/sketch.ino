@@ -66,10 +66,13 @@ unsigned long stopTime = 0;
 unsigned int samplingFrequency = 500;
 
 Sensor rightTrackSensor;
+Sensor leftTrackSensor;
 
 void startCalibration() {
   Serial.println("Start Calibration");
   sensorArray.resetCalibration();
+  leftTrackSensor.resetCalibration();
+  rightTrackSensor.resetCalibration();
   g_calibrateSensors = true;
 }
 
@@ -161,7 +164,7 @@ void setup() {
   trackMap.addSection(30, 10);
 
   rightTrackSensor.setPin(22);
-  
+  leftTrackSensor.setPin(23);
 }
 
 void attachInterrupts() {
@@ -390,6 +393,10 @@ void loop() {
   // reads/writes data from the module and processes commands
   bt.update();
 
+  leftTrackSensor.read();
+  debugPrint("L Mrkr", leftTrackSensor.getValue());
+  Serial.println();
+  
   // Am having a weird issue where the left motor direction reverts to backwards even though I've set it to forwards
   // Setting to forwards every loop seems to fix it for now though
   pinMode(17, OUTPUT);
@@ -444,7 +451,7 @@ void loop() {
     
     markerWasDetected &= col == Col_Black;
     
-    debugPrint("Marker", markerMissingTime, markerWasDetected, markerWasMissing, canDetectMarker);
+    debugPrint("R Mrkr", markerMissingTime, markerWasDetected, markerWasMissing, canDetectMarker);
     
     if (millis() - markerMissingTime > 50 && markerWasDetected && canDetectMarker) {
       
