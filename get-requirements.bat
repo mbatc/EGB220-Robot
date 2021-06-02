@@ -7,6 +7,8 @@ python -m pip install asyncio
 python -m pip install imgui[glfw]
 python -m pip install imgui[sdl2]
 python -m pip install pysdl2
+python -m pip install Pillow
+python -m pip install numpy
 
 copy "remoteroadrunner\SDL2.dll" "C:\windows\system32\SDL2.dll"
 
