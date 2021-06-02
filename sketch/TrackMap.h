@@ -3,6 +3,8 @@
 
 #include "List.h"
 
+#define MAX_SECTIONS 32
+
 class TrackMap
 {
 public:
@@ -33,8 +35,12 @@ public:
   // Get the number of sections
   size_t sectionCount();
 
+  // Clear the track map
+  void clear();
+
 private:
-  List<Section> m_sections;
+  size_t  m_size = 0;
+  Section m_sections[MAX_SECTIONS];
 };
 
 #endif // TrackMap_h__

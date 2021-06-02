@@ -1,15 +1,24 @@
 #include "TrackMap.h"
 
 void TrackMap::addSection(int avgMotorDiff, uint32_t length) {
-  Section sec;
-  sec.time = length;
+  SectionType secType = 0;
   if (avgMotorDiff < -10)
-    sec.type = ST_RTurn;
+    secType = ST_LTurn;
   else if (avgMotorDiff > 10)
-    sec.type = ST_LTurn;
+    secType = ST_RTurn;
   else
-    sec.type = ST_Straight;
-  m_sections.append(sec);
+    secType = ST_Straight;
+
+  if (m_size > 0 && secType == m_sections[m_size - 1].type)
+  {
+    m_sections[m_size - 1].time += length;
+  }
+  else
+  {
+    m_sections[m_size].type = secType;
+    m_sections[m_size].time = length;
+    ++m_size;
+  }
 }
 
 uint32_t TrackMap::sectionLength(size_t index) {
@@ -20,7 +29,10 @@ TrackMap::SectionType TrackMap::sectionType(size_t index) {
   return m_sections[index].type;
 }
 
-// Get the number of sections
 size_t TrackMap::sectionCount() {
-  return m_sections.size();
+  return m_size;
+}
+
+void TrackMap::clear() {
+  m_size = 0;
 }
