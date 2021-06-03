@@ -38,7 +38,7 @@ bool SensorArray::setup(SensorConfig conf) {
   m_config = conf;
     
   // Setting IR receivers as inputs
-  for (int i = 0; i < 8; i++)
+  for (int i = 0; i < IR_SENSOR_COUNT; i++)
     m_sensors[i].setPin(m_config.recvPins[i]);
 
   m_averageSampleCount = 1;

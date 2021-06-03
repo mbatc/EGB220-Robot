@@ -30,30 +30,33 @@ volatile bool   markerIsDetected  = false;
 bool   driving        = false;       // Is the motor currently driving
 bool   inSlowZone     = false;       // Are we in a slow zone
 bool   allowDrive     = true;        // Can the robot start driving
-int    straightSpeed  = 170;         // The speed for the straights
-int    cornerSpeed    = 150;         // The speed for the corners
-int    slowSpeed      = 60;          // The speed for the slow zone
+int    straightSpeed  = 240;         // The speed for the straights
+int    cornerSpeed    = 160;         // The speed for the corners
+int    slowSpeed      = 40;          // The speed for the slow zone
 bool   inStraight     = false;       // Is the robot in a straight track section
 bool   allowAccell    = false;       // Can the robot accelerate
 int    curMotorSpeed  = cornerSpeed; // Setup the initial motor speed to be the cornering speed
-int    acceleration   = 10;          // How fast does the robot accelerate
-int    lapStopTime    = 4000;        // How many milliseconds to stop for between laps
+int    acceleration   = 200;         // How fast does the robot accelerate
+int    lapStopTime    = 3000;        // How many milliseconds to stop for between laps
 int    colDetectThreshold = 10;      // How many consecutive times a colour should be detected before taking action
 int    stopDelay      = 0;
 int    colourDetectLoops = 4;
+int    colourMin = 200;
+int    colourMax = 700;
+int    ssDetectThreshold = 10;
 Colour detectedColour = Col_None;
 Colour lastColour = Col_None;
 
 // Control system parameters
 double kp = 4.5;           // Proportional control
 double ki = 0;             // Integral control
-double kd = 90;            // Derivative control
+double kd = 110;            // Derivative control
 double PIDScaleFactor = 4; // this value adjusts how sensitive the PID correction is on the turning
 
 // Average wheel speed difference
 double avgSpeedDiff     = 0;  // Average difference in motor speed
 double avgSmoothing     = 2;  // Exponential average smoothing
-double speedUpThreshold = 0.1;  // The percentage motor difference to threshold to consider the track straight.
+double speedUpThreshold = 0.35;  // The percentage motor difference to threshold to consider the track straight.
 int    speedDiffSamples = 10; // Number of samples to include in the average 
 int    straightLoops    = 0;
 
@@ -106,7 +109,10 @@ Commands::VarDef cmdVars[] = {
   { "spdUpThr", speedUpThreshold },
   { "stopDelay", stopDelay },
   { "sampleFreq", samplingFrequency },
-  { "colDtcLps", colourDetectLoops}
+  { "colDtcLps", colourDetectLoops},
+  { "colMin", colourMin},
+  { "colMax", colourMax },
+  { "ssDetct", ssDetectThreshold}
 };
 
 // Expose functions to the command interface
@@ -162,10 +168,10 @@ void setup() {
 
 Colour getColour(int intensity)
 {
-  if (intensity < 200) {
+  if (intensity < colourMin) {
     return Col_Black;
   }
-  else if (intensity >= 650) {
+  else if (intensity >= colourMax) {
     return Col_White;
   }
   else {
@@ -324,11 +330,9 @@ void onLapBreak() {
 }
 
 void detectRightMarker()
-{
-  static const int detectThreshold = 100;
-  
-  markerValue = rightTrackSensor.getValue(); // ((markerValue * (3 - 1)) + ) / 3; 
-  markerIsDetected = markerValue < detectThreshold;
+{  
+  markerValue = rightTrackSensor.getValue(); 
+  markerIsDetected = markerValue < ssDetectThreshold;
   
   if (!markerWasDetected && markerIsDetected) {
     markerDetectTime = millis();
@@ -469,11 +473,6 @@ void loop() {
     detectRightMarker();
     detectLeftMarker();
 
-    debugPrint("Colour Intensity", colourIntensity);
-    debugPrint("Colour", detectedColour);
-    debugPrint("Prev Colour", lastCol);
-    debugPrint("Marker", markerValue);
-    
     if (detectedColour != Col_None) { // Read colour
       if (detectedColour != lastCol) {        
         debugPrint("Reading Colour", colourIntensity, detectedColour);
@@ -505,8 +504,6 @@ void loop() {
     }
     
     markerWasDetected &= lastColour == Col_Black;
-    
-    debugPrint("R Mrkr", markerMissingTime, markerWasDetected, markerWasMissing, canDetectMarker);
     
     if (millis() - markerMissingTime > 150 && markerWasDetected && canDetectMarker) {
       

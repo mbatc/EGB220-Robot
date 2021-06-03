@@ -1,3 +1,5 @@
 @echo off
 
-python remoteroadrunner\app.py
+cd remoteroadrunner
+
+python app.py
